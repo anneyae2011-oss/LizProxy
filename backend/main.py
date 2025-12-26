@@ -185,6 +185,7 @@ class RateLimitResult:
 RPM_LIMIT = 10
 RPD_LIMIT = 500
 RPM_WINDOW_SECONDS = 60
+MAX_TOKENS_PER_SECOND = 35  # Maximum tokens per second for streaming
 
 
 # ==================== Helper Functions ====================
@@ -368,6 +369,9 @@ def create_rate_limit_response(result: RateLimitResult) -> JSONResponse:
 # Global database instance (initialized on startup)
 db: Optional[Database] = None
 settings: Optional[Settings] = None
+
+# Global HTTP client for connection pooling (initialized on startup)
+http_client: Optional[httpx.AsyncClient] = None
 
 
 # ==================== Dependency Functions ====================
@@ -593,7 +597,7 @@ async def periodic_save():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan - startup and shutdown."""
-    global db, settings, save_task
+    global db, settings, save_task, http_client
     
     # Startup: Initialize database and settings
     try:
@@ -613,6 +617,23 @@ async def lifespan(app: FastAPI):
     
     await db.initialize()
     
+    # Initialize global HTTP client with connection pooling for 100+ concurrent users
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=15.0,      # Connection timeout
+            read=600.0,        # Read timeout (10 min for long AI responses)
+            write=60.0,        # Write timeout
+            pool=30.0          # Pool timeout
+        ),
+        limits=httpx.Limits(
+            max_keepalive_connections=100,  # Keep 100 connections alive
+            max_connections=200,            # Allow up to 200 total connections
+            keepalive_expiry=120.0          # Keep connections alive for 2 minutes
+        ),
+        http2=True,  # Enable HTTP/2 for multiplexing
+    )
+    print("✓ Initialized HTTP client (100 keepalive, 200 max connections)")
+    
     # Load existing data on startup
     keys = await db.get_all_keys()
     print(f"✓ Loaded {len(keys)} API keys from database")
@@ -630,13 +651,17 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown: Cancel save task and close database
+    # Shutdown: Cancel save task, close HTTP client, and close database
     if save_task:
         save_task.cancel()
         try:
             await save_task
         except asyncio.CancelledError:
             pass
+    
+    if http_client:
+        await http_client.aclose()
+        print("✓ HTTP client closed")
     
     if db:
         await db.close()
@@ -880,54 +905,52 @@ async def proxy_models(
     # Get target API config
     target_url, target_key = await get_target_api_config()
     
-    # Forward request to target API
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(
-                f"{target_url}/models",
-                headers={"Authorization": f"Bearer {target_key}"},
-                timeout=30.0,
-            )
-            
-            # Log usage (0 tokens for models endpoint, doesn't affect rate limits)
-            await db.log_usage(
-                key_id=key_record.id,
-                model="models",
-                tokens=0,
-                success=response.status_code == 200,
-                ip_address=client_ip,
-            )
-            
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.json(),
-            )
-        except httpx.TimeoutException:
-            await db.log_usage(
-                key_id=key_record.id,
-                model="models",
-                tokens=0,
-                success=False,
-                ip_address=client_ip,
-                error_message="Upstream API timeout",
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Unable to reach upstream API"
-            )
-        except httpx.RequestError as e:
-            await db.log_usage(
-                key_id=key_record.id,
-                model="models",
-                tokens=0,
-                success=False,
-                ip_address=client_ip,
-                error_message=str(e),
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Unable to reach upstream API"
-            )
+    # Forward request to target API using global client
+    try:
+        response = await http_client.get(
+            f"{target_url}/models",
+            headers={"Authorization": f"Bearer {target_key}"},
+        )
+        
+        # Log usage (0 tokens for models endpoint, doesn't affect rate limits)
+        await db.log_usage(
+            key_id=key_record.id,
+            model="models",
+            tokens=0,
+            success=response.status_code == 200,
+            ip_address=client_ip,
+        )
+        
+        return JSONResponse(
+            status_code=response.status_code,
+            content=response.json(),
+        )
+    except httpx.TimeoutException:
+        await db.log_usage(
+            key_id=key_record.id,
+            model="models",
+            tokens=0,
+            success=False,
+            ip_address=client_ip,
+            error_message="Upstream API timeout",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to reach upstream API"
+        )
+    except httpx.RequestError as e:
+        await db.log_usage(
+            key_id=key_record.id,
+            model="models",
+            tokens=0,
+            success=False,
+            ip_address=client_ip,
+            error_message=str(e),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to reach upstream API"
+        )
 
 
 @app.post("/v1/chat/completions")
@@ -1002,7 +1025,10 @@ async def _handle_streaming_request(
     token_count: int,
     client_ip: str,
 ) -> StreamingResponse:
-    """Handle a streaming chat completion request.
+    """Handle a streaming chat completion request with TPS rate limiting.
+    
+    Implements true streaming - forwards chunks immediately from upstream.
+    Rate limits output to MAX_TOKENS_PER_SECOND (35 TPS) to prevent overwhelming clients.
     
     Args:
         target_url: The target API URL.
@@ -1016,6 +1042,7 @@ async def _handle_streaming_request(
         StreamingResponse that forwards the target API's stream.
     """
     import json as json_module
+    import time
     
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         output_tokens = 0
@@ -1024,103 +1051,142 @@ async def _handle_streaming_request(
         stream_success = False
         error_message = None
         
-        async with httpx.AsyncClient() as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{target_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {target_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=request_body,
-                    timeout=120.0,
-                ) as response:
-                    stream_success = response.status_code == 200
+        # TPS rate limiting state
+        tokens_this_second = 0
+        last_second = time.monotonic()
+        
+        try:
+            # Use global client for connection reuse
+            async with http_client.stream(
+                "POST",
+                f"{target_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {target_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream",
+                },
+                json=request_body,
+            ) as response:
+                stream_success = response.status_code == 200
+                
+                # If non-200 response, forward error immediately
+                if not stream_success:
+                    error_body = await response.aread()
+                    try:
+                        error_data = json_module.loads(error_body.decode('utf-8'))
+                        error_message = error_data.get('error', {}).get('message') or error_data.get('detail') or str(error_data)
+                    except:
+                        error_message = f"Upstream returned {response.status_code}"
                     
-                    # If non-200 response, try to capture error
-                    if not stream_success:
-                        error_body = await response.aread()
-                        try:
-                            error_data = json_module.loads(error_body.decode('utf-8'))
-                            error_message = error_data.get('error', {}).get('message') or error_data.get('detail') or str(error_data)
-                        except:
-                            error_message = f"Upstream returned {response.status_code}"
-                        
-                        # Log the error
-                        await db.log_usage(
-                            key_id=key_record.id,
-                            model=request_body.get("model", "unknown"),
-                            tokens=token_count,
-                            success=False,
-                            ip_address=client_ip,
-                            input_tokens=token_count,
-                            output_tokens=0,
-                            error_message=error_message,
-                        )
-                        yield error_body
-                        return
-                    
-                    async for chunk in response.aiter_bytes():
-                        # Try to extract usage from SSE chunks
-                        try:
-                            chunk_str = chunk.decode('utf-8')
-                            for line in chunk_str.split('\n'):
-                                if line.startswith('data: ') and line != 'data: [DONE]':
-                                    data_str = line[6:]  # Remove 'data: ' prefix
-                                    if data_str.strip():
+                    await db.log_usage(
+                        key_id=key_record.id,
+                        model=request_body.get("model", "unknown"),
+                        tokens=token_count,
+                        success=False,
+                        ip_address=client_ip,
+                        input_tokens=token_count,
+                        output_tokens=0,
+                        error_message=error_message,
+                    )
+                    yield error_body
+                    return
+                
+                # True streaming - forward each chunk immediately
+                async for chunk in response.aiter_bytes():
+                    # Count tokens in this chunk for TPS limiting
+                    chunk_tokens = 0
+                    try:
+                        chunk_str = chunk.decode('utf-8')
+                        for line in chunk_str.split('\n'):
+                            if line.startswith('data: ') and line != 'data: [DONE]':
+                                data_str = line[6:]
+                                if data_str.strip():
+                                    try:
                                         data = json_module.loads(data_str)
-                                        # Check for usage in the chunk (sent at end of stream)
+                                        # Count tokens from delta content
+                                        if 'choices' in data:
+                                            for choice in data['choices']:
+                                                delta = choice.get('delta', {})
+                                                content = delta.get('content', '')
+                                                if content:
+                                                    # Rough estimate: 1 token ≈ 4 chars
+                                                    chunk_tokens += max(1, len(content) // 4)
+                                        # Extract final usage stats
                                         if 'usage' in data:
                                             input_tokens_actual = data['usage'].get('prompt_tokens', token_count)
                                             output_tokens = data['usage'].get('completion_tokens', 0)
                                             total_tokens = data['usage'].get('total_tokens', token_count)
-                                        # Check for error in chunk
                                         if 'error' in data:
                                             error_message = data['error'].get('message') or str(data['error'])
                                             stream_success = False
-                        except (json_module.JSONDecodeError, UnicodeDecodeError):
-                            pass  # Not all chunks are JSON
-                        
-                        yield chunk
+                                    except json_module.JSONDecodeError:
+                                        pass
+                    except UnicodeDecodeError:
+                        chunk_tokens = 1  # Assume at least 1 token for binary chunks
                     
-                    # Log usage after stream completes
-                    await db.log_usage(
-                        key_id=key_record.id,
-                        model=request_body.get("model", "unknown"),
-                        tokens=total_tokens,
-                        success=stream_success,
-                        ip_address=client_ip,
-                        input_tokens=input_tokens_actual,
-                        output_tokens=output_tokens,
-                        error_message=error_message,
-                    )
-            except httpx.TimeoutException:
+                    # TPS rate limiting - only throttle if we're going too fast
+                    current_time = time.monotonic()
+                    if current_time - last_second >= 1.0:
+                        # New second, reset counter
+                        tokens_this_second = 0
+                        last_second = current_time
+                    
+                    tokens_this_second += max(1, chunk_tokens)
+                    
+                    # If we've exceeded TPS limit, add a small delay
+                    if tokens_this_second > MAX_TOKENS_PER_SECOND:
+                        # Calculate how long to wait
+                        wait_time = 1.0 - (current_time - last_second)
+                        if wait_time > 0:
+                            await asyncio.sleep(wait_time)
+                        tokens_this_second = max(1, chunk_tokens)
+                        last_second = time.monotonic()
+                    
+                    # Yield chunk immediately (true streaming)
+                    yield chunk
+                
+                # Log usage after stream completes
                 await db.log_usage(
                     key_id=key_record.id,
                     model=request_body.get("model", "unknown"),
-                    tokens=token_count,
-                    success=False,
+                    tokens=total_tokens,
+                    success=stream_success,
                     ip_address=client_ip,
-                    input_tokens=token_count,
-                    error_message="Upstream API timeout",
+                    input_tokens=input_tokens_actual,
+                    output_tokens=output_tokens,
+                    error_message=error_message,
                 )
-                yield b'data: {"error": "Upstream API timeout"}\n\n'
-            except httpx.RequestError as e:
-                await db.log_usage(
-                    key_id=key_record.id,
-                    model=request_body.get("model", "unknown"),
-                    tokens=token_count,
-                    success=False,
-                    ip_address=client_ip,
-                    input_tokens=token_count,
-                    error_message=str(e),
-                )
-                yield b'data: {"error": "Unable to reach upstream API"}\n\n'
+        except httpx.TimeoutException:
+            await db.log_usage(
+                key_id=key_record.id,
+                model=request_body.get("model", "unknown"),
+                tokens=token_count,
+                success=False,
+                ip_address=client_ip,
+                input_tokens=token_count,
+                error_message="Upstream API timeout",
+            )
+            yield b'data: {"error": "Upstream API timeout"}\n\n'
+        except httpx.RequestError as e:
+            await db.log_usage(
+                key_id=key_record.id,
+                model=request_body.get("model", "unknown"),
+                tokens=token_count,
+                success=False,
+                ip_address=client_ip,
+                input_tokens=token_count,
+                error_message=str(e),
+            )
+            yield b'data: {"error": "Unable to reach upstream API"}\n\n'
     
     return StreamingResponse(
         stream_generator(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx/proxy buffering
+        }
     )
 
 
@@ -1134,6 +1200,8 @@ async def _handle_non_streaming_request(
 ) -> JSONResponse:
     """Handle a non-streaming chat completion request.
     
+    Uses the global HTTP client for connection reuse and optimal performance.
+    
     Args:
         target_url: The target API URL.
         target_key: The target API key.
@@ -1145,72 +1213,71 @@ async def _handle_non_streaming_request(
     Returns:
         JSONResponse with the target API's response.
     """
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                f"{target_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {target_key}",
-                    "Content-Type": "application/json",
-                },
-                json=request_body,
-                timeout=120.0,
-            )
-            
-            response_data = response.json()
-            
-            # Extract actual token usage if available
-            input_tokens = token_count
-            output_tokens = 0
-            actual_tokens = token_count
-            if "usage" in response_data:
-                input_tokens = response_data["usage"].get("prompt_tokens", token_count)
-                output_tokens = response_data["usage"].get("completion_tokens", 0)
-                actual_tokens = response_data["usage"].get("total_tokens", token_count)
-            
-            # Log usage
-            await db.log_usage(
-                key_id=key_record.id,
-                model=request_body.get("model", "unknown"),
-                tokens=actual_tokens,
-                success=response.status_code == 200,
-                ip_address=client_ip,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
-            
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response_data,
-            )
-        except httpx.TimeoutException:
-            await db.log_usage(
-                key_id=key_record.id,
-                model=request_body.get("model", "unknown"),
-                tokens=token_count,
-                success=False,
-                ip_address=client_ip,
-                input_tokens=token_count,
-                error_message="Upstream API timeout",
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Unable to reach upstream API"
-            )
-        except httpx.RequestError as e:
-            await db.log_usage(
-                key_id=key_record.id,
-                model=request_body.get("model", "unknown"),
-                tokens=token_count,
-                success=False,
-                ip_address=client_ip,
-                input_tokens=token_count,
-                error_message=str(e),
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Unable to reach upstream API"
-            )
+    try:
+        # Use global client for connection reuse
+        response = await http_client.post(
+            f"{target_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {target_key}",
+                "Content-Type": "application/json",
+            },
+            json=request_body,
+        )
+        
+        response_data = response.json()
+        
+        # Extract actual token usage if available
+        input_tokens = token_count
+        output_tokens = 0
+        actual_tokens = token_count
+        if "usage" in response_data:
+            input_tokens = response_data["usage"].get("prompt_tokens", token_count)
+            output_tokens = response_data["usage"].get("completion_tokens", 0)
+            actual_tokens = response_data["usage"].get("total_tokens", token_count)
+        
+        # Log usage
+        await db.log_usage(
+            key_id=key_record.id,
+            model=request_body.get("model", "unknown"),
+            tokens=actual_tokens,
+            success=response.status_code == 200,
+            ip_address=client_ip,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        
+        return JSONResponse(
+            status_code=response.status_code,
+            content=response_data,
+        )
+    except httpx.TimeoutException:
+        await db.log_usage(
+            key_id=key_record.id,
+            model=request_body.get("model", "unknown"),
+            tokens=token_count,
+            success=False,
+            ip_address=client_ip,
+            input_tokens=token_count,
+            error_message="Upstream API timeout",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to reach upstream API"
+        )
+    except httpx.RequestError as e:
+        await db.log_usage(
+            key_id=key_record.id,
+            model=request_body.get("model", "unknown"),
+            tokens=token_count,
+            success=False,
+            ip_address=client_ip,
+            input_tokens=token_count,
+            error_message=str(e),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to reach upstream API"
+        )
 
 
 # ==================== Admin Endpoints ====================
