@@ -630,7 +630,7 @@ async def lifespan(app: FastAPI):
             max_connections=200,            # Allow up to 200 total connections
             keepalive_expiry=120.0          # Keep connections alive for 2 minutes
         ),
-        http2=True,  # Enable HTTP/2 for multiplexing
+        http2=False,  # Use HTTP/1.1 for better compatibility
     )
     print("✓ Initialized HTTP client (100 keepalive, 200 max connections)")
     
