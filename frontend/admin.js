@@ -369,13 +369,21 @@ function displayRequestLogs(logs) {
         return;
     }
     
+    // Filter out "models" requests (these are just model list fetches, not actual API calls)
+    const filteredLogs = logs.filter(log => log.model !== 'models');
+    
+    if (filteredLogs.length === 0) {
+        requestLogsEl.innerHTML = '<div class="loading-cell">No requests yet</div>';
+        return;
+    }
+    
     // Update count if element exists
     const countEl = document.getElementById('request-count');
     if (countEl) {
-        countEl.textContent = `${logs.length} recent`;
+        countEl.textContent = `${filteredLogs.length} recent`;
     }
     
-    requestLogsEl.innerHTML = logs.map(log => `
+    requestLogsEl.innerHTML = filteredLogs.map(log => `
         <div class="log-entry ${log.success ? 'success' : 'error'}">
             <div class="log-header">
                 <span class="log-model">${escapeHtml(log.model)}</span>
@@ -417,7 +425,15 @@ function displayTopRequests(logs) {
         return;
     }
     
-    topRequestsEl.innerHTML = logs.map((log, i) => `
+    // Filter out "models" requests
+    const filteredLogs = logs.filter(log => log.model !== 'models');
+    
+    if (filteredLogs.length === 0) {
+        topRequestsEl.innerHTML = '<div class="loading-cell">No requests yet</div>';
+        return;
+    }
+    
+    topRequestsEl.innerHTML = filteredLogs.map((log, i) => `
         <div class="log-entry success">
             <div class="log-header">
                 <span class="log-model">#${i + 1} · ${escapeHtml(log.model)}</span>
