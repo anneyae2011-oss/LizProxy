@@ -28,6 +28,10 @@ def main():
         print(f"✓ Configuration loaded successfully")
         print(f"  - Admin password: {'*' * len(settings.admin_password)} ({len(settings.admin_password)} chars)")
         print(f"  - Target API URL: {settings.target_api_url}")
+        if settings.target_api_key:
+            print(f"  - Target API Key: {'*' * 8}... (set via env)")
+        else:
+            print(f"  - Target API Key: Not set (configure via admin dashboard)")
         print(f"  - Max context: {settings.max_context}")
         if settings.database_url:
             print(f"  - Database: PostgreSQL")
