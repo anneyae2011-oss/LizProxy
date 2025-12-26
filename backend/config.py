@@ -42,23 +42,29 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
     else:
         load_dotenv()
     
-    # Required settings
+    # Required settings (strip whitespace to handle copy-paste issues)
     admin_password = os.getenv("ADMIN_PASSWORD")
     if not admin_password:
         raise ValueError("ADMIN_PASSWORD environment variable is required")
+    admin_password = admin_password.strip()
     
+    # TARGET_API_KEY is optional at startup - can be configured via admin dashboard
     target_api_key = os.getenv("TARGET_API_KEY")
-    if not target_api_key:
-        raise ValueError("TARGET_API_KEY environment variable is required")
+    if target_api_key:
+        target_api_key = target_api_key.strip()
+    else:
+        target_api_key = ""  # Will be set via admin dashboard
     
-    # Optional settings with defaults
-    target_api_url = os.getenv("TARGET_API_URL", "https://api.openai.com/v1")
-    port = int(os.getenv("PORT", "8000"))
-    max_context = int(os.getenv("MAX_CONTEXT", "128000"))
-    database_path = os.getenv("DATABASE_PATH", "./proxy.db")
+    # Optional settings with defaults (also strip whitespace)
+    target_api_url = os.getenv("TARGET_API_URL", "https://api.openai.com/v1").strip()
+    port = int(os.getenv("PORT", "8000").strip())
+    max_context = int(os.getenv("MAX_CONTEXT", "128000").strip())
+    database_path = os.getenv("DATABASE_PATH", "./proxy.db").strip()
     
     # PostgreSQL URL (if set, will be used instead of SQLite)
     database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        database_url = database_url.strip()
     
     return Settings(
         admin_password=admin_password,
