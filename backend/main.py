@@ -995,6 +995,9 @@ async def proxy_chat_completions(
     # Prepare request body
     request_body = chat_request.model_dump(exclude_none=True)
     
+    # Log the request for debugging
+    print(f"[Proxy Request] Model: {request_body.get('model')}, Stream: {request_body.get('stream')}, Target: {target_url}")
+    
     # Handle streaming response
     if chat_request.stream:
         return await _handle_streaming_request(
@@ -1072,11 +1075,16 @@ async def _handle_streaming_request(
                 # If non-200 response, forward error immediately
                 if not stream_success:
                     error_body = await response.aread()
+                    error_text = error_body.decode('utf-8', errors='replace')
+                    
+                    # Log the full error for debugging
+                    print(f"[Upstream Error] Status: {response.status_code}, Body: {error_text[:500]}")
+                    
                     try:
-                        error_data = json_module.loads(error_body.decode('utf-8'))
-                        error_message = error_data.get('error', {}).get('message') or error_data.get('detail') or str(error_data)
+                        error_data = json_module.loads(error_text)
+                        error_message = error_data.get('error', {}).get('message') or error_data.get('detail') or error_text
                     except:
-                        error_message = f"Upstream returned {response.status_code}"
+                        error_message = error_text or f"Upstream returned {response.status_code}"
                     
                     await db.log_usage(
                         key_id=key_record.id,
@@ -1086,9 +1094,19 @@ async def _handle_streaming_request(
                         ip_address=client_ip,
                         input_tokens=token_count,
                         output_tokens=0,
-                        error_message=error_message,
+                        error_message=error_message[:500],  # Truncate for DB
                     )
-                    yield error_body
+                    
+                    # Return error in SSE format so clients can parse it
+                    error_response = {
+                        "error": {
+                            "message": error_message,
+                            "type": "upstream_error",
+                            "code": response.status_code
+                        }
+                    }
+                    yield f"data: {json_module.dumps(error_response)}\n\n".encode('utf-8')
+                    yield b"data: [DONE]\n\n"
                     return
                 
                 # True streaming - forward each chunk immediately
@@ -1156,7 +1174,8 @@ async def _handle_streaming_request(
                     output_tokens=output_tokens,
                     error_message=error_message,
                 )
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
+            print(f"[Upstream Timeout] {str(e)}")
             await db.log_usage(
                 key_id=key_record.id,
                 model=request_body.get("model", "unknown"),
@@ -1166,8 +1185,11 @@ async def _handle_streaming_request(
                 input_tokens=token_count,
                 error_message="Upstream API timeout",
             )
-            yield b'data: {"error": "Upstream API timeout"}\n\n'
+            error_response = {"error": {"message": "Upstream API timeout", "type": "timeout", "code": 504}}
+            yield f"data: {json_module.dumps(error_response)}\n\n".encode('utf-8')
+            yield b"data: [DONE]\n\n"
         except httpx.RequestError as e:
+            print(f"[Upstream Request Error] {str(e)}")
             await db.log_usage(
                 key_id=key_record.id,
                 model=request_body.get("model", "unknown"),
@@ -1177,7 +1199,9 @@ async def _handle_streaming_request(
                 input_tokens=token_count,
                 error_message=str(e),
             )
-            yield b'data: {"error": "Unable to reach upstream API"}\n\n'
+            error_response = {"error": {"message": f"Unable to reach upstream API: {str(e)}", "type": "connection_error", "code": 502}}
+            yield f"data: {json_module.dumps(error_response)}\n\n".encode('utf-8')
+            yield b"data: [DONE]\n\n"
     
     return StreamingResponse(
         stream_generator(),
