@@ -315,17 +315,27 @@ function formatNumber(num) {
  * Copy API key to clipboard
  */
 async function copyKey() {
-    // Try to get the full key from storage or use the prefix
-    const keyToCopy = localStorage.getItem(STORAGE_FULL_KEY) || currentKeyPrefix;
+    // Try to get the full key from multiple sources
+    let keyToCopy = localStorage.getItem(STORAGE_FULL_KEY);
     
-    if (!keyToCopy) {
-        showStatus('No key available to copy', 'error');
+    // Also check the in-memory fullKey variable
+    if (!keyToCopy && fullKey) {
+        keyToCopy = fullKey;
+    }
+    
+    // Debug: log what we're trying to copy
+    console.log('Copy key - localStorage:', localStorage.getItem(STORAGE_FULL_KEY));
+    console.log('Copy key - fullKey variable:', fullKey);
+    console.log('Copy key - keyToCopy:', keyToCopy);
+    
+    if (!keyToCopy || keyToCopy.length < 10) {
+        showStatus('Full key not available. It was only shown once during generation.', 'error');
         return;
     }
     
     try {
         await navigator.clipboard.writeText(keyToCopy);
-        showStatus('API key copied to clipboard!', 'success');
+        showStatus(`API key copied! (${keyToCopy.length} chars)`, 'success');
         
         // Visual feedback on button
         const copyBtn = document.getElementById('copy-btn');
@@ -347,7 +357,7 @@ async function copyKey() {
         
         try {
             document.execCommand('copy');
-            showStatus('API key copied to clipboard!', 'success');
+            showStatus(`API key copied! (${keyToCopy.length} chars)`, 'success');
         } catch (err) {
             showStatus('Failed to copy. Please copy manually.', 'error');
         }
