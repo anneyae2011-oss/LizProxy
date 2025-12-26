@@ -26,7 +26,7 @@ def main():
         settings = load_settings()
         port = settings.port
         print(f"✓ Configuration loaded successfully")
-        print(f"  - Admin password: {'*' * len(settings.admin_password)}")
+        print(f"  - Admin password: {'*' * len(settings.admin_password)} ({len(settings.admin_password)} chars)")
         print(f"  - Target API URL: {settings.target_api_url}")
         print(f"  - Max context: {settings.max_context}")
         if settings.database_url:
