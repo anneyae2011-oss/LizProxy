@@ -584,7 +584,12 @@ class PostgreSQLDatabase(Database):
 
     async def _get_pool(self):
         if self._pool is None:
-            self._pool = await asyncpg.create_pool(self.database_url, min_size=2, max_size=10)
+            # Pool sized for 100+ concurrent users
+            self._pool = await asyncpg.create_pool(
+                self.database_url, 
+                min_size=10,   # Keep 10 connections ready
+                max_size=50    # Allow up to 50 connections
+            )
         return self._pool
 
     async def close(self) -> None:
