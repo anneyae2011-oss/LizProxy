@@ -171,6 +171,11 @@ class Database(ABC):
         pass
     
     @abstractmethod
+    async def increment_usage(self, key_id: int) -> tuple[int, int]:
+        """Atomically increment RPM and RPD counters and return new values."""
+        pass
+    
+    @abstractmethod
     async def reset_rpm(self, key_id: int) -> None:
         pass
     
@@ -389,6 +394,18 @@ class SQLiteDatabase(Database):
             (rpm, rpd, key_id)
         )
         await conn.commit()
+
+    async def increment_usage(self, key_id: int) -> tuple[int, int]:
+        """Atomically increment RPM and RPD counters and return new values."""
+        conn = await self._get_connection()
+        await conn.execute(
+            "UPDATE api_keys SET current_rpm = current_rpm + 1, current_rpd = current_rpd + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (key_id,)
+        )
+        await conn.commit()
+        cursor = await conn.execute("SELECT current_rpm, current_rpd FROM api_keys WHERE id = ?", (key_id,))
+        row = await cursor.fetchone()
+        return (row["current_rpm"], row["current_rpd"]) if row else (0, 0)
 
     async def reset_rpm(self, key_id: int) -> None:
         conn = await self._get_connection()
@@ -719,6 +736,16 @@ class PostgreSQLDatabase(Database):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute("UPDATE api_keys SET current_rpm = $1, current_rpd = $2, last_used_at = CURRENT_TIMESTAMP WHERE id = $3", rpm, rpd, key_id)
+
+    async def increment_usage(self, key_id: int) -> tuple[int, int]:
+        """Atomically increment RPM and RPD counters and return new values."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "UPDATE api_keys SET current_rpm = current_rpm + 1, current_rpd = current_rpd + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING current_rpm, current_rpd",
+                key_id
+            )
+            return (row["current_rpm"], row["current_rpd"]) if row else (0, 0)
 
     async def reset_rpm(self, key_id: int) -> None:
         pool = await self._get_pool()
