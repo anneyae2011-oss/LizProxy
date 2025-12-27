@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Liz's Proxy - Admin Dashboard">
+    <title>Liz's Proxy — Admin</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Quicksand:wght@300;400;500&display=swap" rel="stylesheet">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/style.css?v=20251225k">
+    <link rel="stylesheet" href="/static/admin.css?v=20251225k">
+</head>
+<body>
+    <!-- Background with Vignette -->
+    <div class="background-image"></div>
+    <div class="vignette-overlay"></div>
+    
+    <!-- Floating Particles -->
+    <div class="particles-container">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+    
+    <!-- Theme Toggle -->
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
+        <span class="icon-sun">☀️</span>
+        <span class="icon-moon">🌙</span>
+    </button>
+    
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <a href="/" class="nav-brand">✧ Liz's Proxy ✧</a>
+        <div class="nav-links">
+            <a href="/" class="nav-link">Home</a>
+            <a href="/admin" class="nav-link">Admin</a>
+        </div>
+    </nav>
+    
+    <!-- Password Modal -->
+    <div id="password-modal" class="modal">
+        <div class="modal-content card">
+            <h2>Authentication</h2>
+            <p class="modal-subtitle">Enter the admin password to continue</p>
+            <form id="password-form" onsubmit="handlePasswordSubmit(event)">
+                <div class="form-group">
+                    <label for="admin-password">Password</label>
+                    <input type="password" id="admin-password" name="password" required 
+                           placeholder="Enter password..." autocomplete="current-password">
+                </div>
+                <div id="password-error" class="error-message hidden"></div>
+                <button type="submit" class="btn btn-primary btn-full">
+                    Enter
+                </button>
+            </form>
+            <a href="/" class="back-link">← Return to site</a>
+        </div>
+    </div>
+
+    <!-- Key Analytics Modal -->
+    <div id="analytics-modal" class="modal hidden">
+        <div class="modal-content card analytics-modal-content">
+            <div class="modal-header">
+                <h2>Key Analytics</h2>
+                <button onclick="closeAnalyticsModal()" class="btn btn-ghost btn-sm">✕</button>
+            </div>
+            <div id="analytics-content">
+                <div class="loading-cell">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Admin Content -->
+    <main id="admin-content" class="container admin-container hidden">
+        <div class="admin-header">
+            <h1>✧ Admin Dashboard ✧</h1>
+            <div class="header-actions">
+                <a href="/" class="btn btn-ghost btn-sm">Home</a>
+                <button onclick="logout()" class="btn btn-ghost btn-sm">Logout</button>
+            </div>
+        </div>
+
+        <!-- Console Log Section -->
+        <section class="admin-section card console-section">
+            <div class="section-header">
+                <h2>Console</h2>
+                <span class="live-indicator">● Live</span>
+            </div>
+            <div id="console-log" class="console-log">
+                <div class="console-entry info">Waiting for activity...</div>
+            </div>
+        </section>
+
+        <!-- Request Cards Section - Full Width Sanctuary -->
+        <section class="admin-section card requests-sanctuary">
+            <div class="section-header">
+                <h2>✧ Request Cards ✧</h2>
+                <span class="request-count" id="request-count"></span>
+            </div>
+            <div id="request-logs" class="request-cards-grid">
+                <div class="loading-cell">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Top Token Usage - Horizontal Cards -->
+        <section class="admin-section card top-usage-sanctuary">
+            <div class="section-header">
+                <h2>✧ Top Token Usage ✧</h2>
+            </div>
+            <div id="top-requests" class="top-cards-row">
+                <div class="loading-cell">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Configuration Section -->
+        <section class="admin-section card">
+            <div class="section-header">
+                <h2>Proxy Configuration</h2>
+                <button onclick="loadConfig()" class="btn btn-ghost btn-sm">Refresh</button>
+            </div>
+            
+            <form id="config-form" onsubmit="saveConfig(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="target-url">Target API URL</label>
+                        <input type="url" id="target-url" name="target_api_url" 
+                               placeholder="https://api.openai.com/v1" required>
+                        <small class="form-hint">The upstream API endpoint to proxy requests to</small>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="target-key">Target API Key</label>
+                        <input type="password" id="target-key" name="target_api_key" 
+                               placeholder="sk-..." required>
+                        <small class="form-hint">Your API key for the target service (stored securely)</small>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="max-context">Max Context Tokens</label>
+                        <input type="number" id="max-context" name="max_context" 
+                               min="1000" max="1000000" value="128000" required>
+                        <small class="form-hint">Maximum token limit for requests (default: 128,000)</small>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Configuration</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Rate Limit Reset Section -->
+        <section class="admin-section card">
+            <div class="section-header">
+                <h2>Rate Limit Management</h2>
+            </div>
+            
+            <div class="reset-section">
+                <div class="reset-item">
+                    <h4>Reset All RPM</h4>
+                    <p>Reset requests-per-minute counters for all keys</p>
+                    <button onclick="resetAllRpm()" class="btn btn-ghost btn-sm">Reset RPM</button>
+                </div>
+                <div class="reset-item">
+                    <h4>Reset All RPD</h4>
+                    <p>Reset requests-per-day counters for all keys</p>
+                    <button onclick="resetAllRpd()" class="btn btn-warning btn-sm">Reset RPD</button>
+                </div>
+            </div>
+            
+            <p class="form-hint" style="text-align: center; margin-top: var(--space-sm);">
+                RPM resets automatically every minute. RPD resets at midnight UTC.<br>
+                Current UTC time: <span id="utc-time"></span>
+            </p>
+        </section>
+
+        <!-- API Keys Section -->
+        <section class="admin-section card">
+            <div class="section-header">
+                <h2>API Keys</h2>
+                <span class="key-count" id="key-count"></span>
+            </div>
+            
+            <div class="table-container scrollable-table" id="keys-table-container">
+                <table id="keys-table" class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Google Account</th>
+                            <th>Status</th>
+                            <th>RPM</th>
+                            <th>RPD</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="keys-tbody">
+                        <tr>
+                            <td colspan="6" class="loading-cell">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="no-keys-message" class="empty-message hidden">
+                No API keys have been generated yet.
+            </div>
+        </section>
+
+        <!-- Banned IPs Section -->
+        <section class="admin-section card">
+            <div class="section-header">
+                <h2>Banned IPs</h2>
+            </div>
+            
+            <form id="ban-ip-form" class="inline-form" onsubmit="banIp(event)">
+                <div class="form-group inline">
+                    <input type="text" id="ban-ip-input" name="ip_address" 
+                           placeholder="IP address to ban..." required>
+                </div>
+                <div class="form-group inline">
+                    <input type="text" id="ban-reason-input" name="reason" 
+                           placeholder="Reason (optional)">
+                </div>
+                <button type="submit" class="btn btn-danger">Ban</button>
+            </form>
+            
+            <div class="table-container">
+                <table id="banned-table" class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th>Reason</th>
+                            <th>Banned</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="banned-tbody">
+                        <tr>
+                            <td colspan="4" class="loading-cell">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="no-banned-message" class="empty-message hidden">
+                No IP addresses are currently banned.
+            </div>
+        </section>
+
+        <!-- Status Messages -->
+        <div id="admin-status" class="status-message hidden"></div>
+    </main>
+
+    <!-- Scripts -->
+    <script src="/static/admin.js?v=20251225k"></script>
+</body>
+</html>

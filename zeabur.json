@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.zeabur.app/template.json",
+  "name": "Liz's Proxy",
+  "description": "OpenAI-compatible API proxy with IP-based key generation",
+  "icon": "https://raw.githubusercontent.com/openai/openai-python/main/logo.png",
+  "tags": ["python", "fastapi", "proxy", "openai"],
+  "build": {
+    "type": "python"
+  },
+  "start": {
+    "command": "uvicorn backend.main:app --host 0.0.0.0 --port 8080"
+  },
+  "env": {
+    "ADMIN_PASSWORD": {
+      "description": "Password for admin dashboard access",
+      "required": true
+    },
+    "TARGET_API_URL": {
+      "description": "Target API URL to proxy requests to",
+      "default": "https://api.openai.com/v1"
+    },
+    "TARGET_API_KEY": {
+      "description": "API key for the target service (can be set via admin dashboard)",
+      "required": false
+    },
+    "MAX_CONTEXT": {
+      "description": "Maximum context token limit",
+      "default": "128000"
+    },
+    "DATABASE_URL": {
+      "description": "PostgreSQL connection URL (optional, uses SQLite if not set)",
+      "required": false
+    },
+    "PORT": {
+      "description": "Port to run the server on",
+      "default": "8080"
+    }
+  },
+  "ports": [
+    {
+      "port": 8080,
+      "type": "HTTP"
+    }
+  ]
+}
