@@ -29,10 +29,23 @@ from backend.database import Database, ApiKeyRecord, create_database
 # Get the directory where this file is located
 BACKEND_DIR = Path(__file__).parent
 # Frontend directory is at the same level as backend
-FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
+# Try multiple possible locations for the frontend
+_possible_frontend_paths = [
+    BACKEND_DIR.parent / "frontend",  # Standard: backend/../frontend
+    Path.cwd() / "frontend",          # CWD/frontend (for Zeabur)
+    Path("/app/frontend"),            # Absolute path in container
+]
+FRONTEND_DIR = None
+for _path in _possible_frontend_paths:
+    if _path.exists() and (_path / "index.html").exists():
+        FRONTEND_DIR = _path
+        break
+# Fallback to the standard path even if it doesn't exist (for error messages)
+if FRONTEND_DIR is None:
+    FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 
 
-# ==================== Pydantic Models ===================
+# ==================== Pydantic Models ====================
 
 class KeyGenerationResponse(BaseModel):
     """Response model for key generation endpoint."""
@@ -1745,7 +1758,11 @@ async def serve_index():
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
         return FileResponse(str(index_path), media_type="text/html")
-    raise HTTPException(status_code=404, detail="Frontend not found")
+    # Debug info for troubleshooting
+    raise HTTPException(
+        status_code=404, 
+        detail=f"Frontend not found. Checked: {FRONTEND_DIR}, exists={FRONTEND_DIR.exists()}, cwd={Path.cwd()}"
+    )
 
 
 @app.get("/admin", include_in_schema=False)
