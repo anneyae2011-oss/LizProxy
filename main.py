@@ -32,7 +32,7 @@ BACKEND_DIR = Path(__file__).parent
 FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 
 
-# ==================== Pydantic Models ====================
+# ==================== Pydantic Models ===================
 
 class KeyGenerationResponse(BaseModel):
     """Response model for key generation endpoint."""
