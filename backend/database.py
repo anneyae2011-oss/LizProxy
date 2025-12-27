@@ -638,16 +638,31 @@ class PostgreSQLDatabase(Database):
                     last_used_at TIMESTAMP
                 )
             """)
+            # Migrations - add new columns if they don't exist
+            # Check which columns exist
+            existing_cols = await conn.fetch("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'api_keys'
+            """)
+            existing_col_names = {row['column_name'] for row in existing_cols}
+            
+            # Add missing columns
+            if 'full_key' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN full_key TEXT")
+            if 'google_id' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN google_id TEXT")
+            if 'google_email' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN google_email TEXT")
+            
+            # Create indexes (safe to run multiple times)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_ip ON api_keys(ip_address)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_fingerprint ON api_keys(browser_fingerprint)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_google_id ON api_keys(google_id)")
             
-            # Migrations
-            for col, typ in [("full_key", "TEXT"), ("google_id", "TEXT"), ("google_email", "TEXT")]:
-                try:
-                    await conn.execute(f"ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS {col} {typ}")
-                except Exception:
-                    pass
+            # Create google_id index only if column exists now
+            try:
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_google_id ON api_keys(google_id)")
+            except Exception:
+                pass  # Index might already exist or column issue
             
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS usage_logs (
