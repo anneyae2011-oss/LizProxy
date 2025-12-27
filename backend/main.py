@@ -271,6 +271,7 @@ async def check_and_update_rate_limits(
     
     This function checks both RPM (requests per minute) and RPD (requests per day)
     limits. It handles automatic reset of counters when the time window has passed.
+    Uses atomic increment to prevent race conditions with concurrent requests.
     
     Args:
         key_record: The API key record to check.
@@ -330,10 +331,8 @@ async def check_and_update_rate_limits(
             retry_after=retry_after,
         )
     
-    # Request is allowed - increment counters
-    new_rpm = current_rpm + 1
-    new_rpd = current_rpd + 1
-    await database.update_usage(key_record.id, new_rpm, new_rpd)
+    # Request is allowed - atomically increment counters to prevent race conditions
+    new_rpm, new_rpd = await database.increment_usage(key_record.id)
     
     return RateLimitResult(
         allowed=True,
