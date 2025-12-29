@@ -1047,3 +1047,48 @@ h3 {
         animation: none;
     }
 }
+
+
+/* ===================================
+   Credits
+   =================================== */
+
+.credits {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    font-family: var(--font-clean);
+    font-size: 0.75rem;
+    color: var(--ink-faded);
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+    z-index: 100;
+}
+
+.credits:hover {
+    opacity: 1;
+}
+
+.credits a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--border-soft);
+    transition: all 0.3s ease;
+}
+
+.credits a:hover {
+    color: var(--ink);
+    border-bottom-color: var(--border-medium);
+}
+
+[data-theme="dark"] .credits {
+    color: var(--ink-faded);
+}
+
+[data-theme="dark"] .credits a {
+    color: var(--ink-soft);
+}
+
+[data-theme="dark"] .credits a:hover {
+    color: var(--cloud-white);
+}
