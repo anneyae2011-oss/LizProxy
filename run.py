@@ -34,6 +34,7 @@ def main():
         print(f"  - Admin password: {'*' * len(settings.admin_password)}")
         print(f"  - Target API URL: {settings.target_api_url}")
         print(f"  - Max context: {settings.max_context}")
+        print(f"  - Max output tokens: {settings.max_output_tokens}")
         print(f"  - Database path: {settings.database_path}")
     except ValueError as e:
         print(f"⚠ Warning: {e}")

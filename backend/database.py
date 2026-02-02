@@ -100,6 +100,7 @@ class ProxyConfig:
     target_api_url: str
     target_api_key: str
     max_context: int
+    max_output_tokens: int
 
 
 def create_database(database_url: Optional[str] = None, database_path: str = "./proxy.db") -> "Database":
@@ -244,7 +245,7 @@ class Database(ABC):
         pass
     
     @abstractmethod
-    async def update_config(self, target_url: str, target_key: str, max_context: int) -> None:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
         pass
 
 
@@ -337,9 +338,14 @@ class SQLiteDatabase(Database):
                 target_api_url TEXT NOT NULL,
                 target_api_key TEXT NOT NULL,
                 max_context INTEGER DEFAULT 128000,
+                max_output_tokens INTEGER DEFAULT 4096,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        try:
+            await conn.execute("SELECT max_output_tokens FROM proxy_config LIMIT 1")
+        except Exception:
+            await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
         
         await conn.commit()
 
@@ -582,11 +588,14 @@ class SQLiteDatabase(Database):
         conn = await self._get_connection()
         cursor = await conn.execute("SELECT * FROM proxy_config WHERE id = 1")
         row = await cursor.fetchone()
-        return ProxyConfig(target_api_url=row["target_api_url"], target_api_key=row["target_api_key"], max_context=row["max_context"]) if row else None
+        if not row:
+            return None
+        max_out = row["max_output_tokens"] if "max_output_tokens" in row.keys() else 4096
+        return ProxyConfig(target_api_url=row["target_api_url"], target_api_key=row["target_api_key"], max_context=row["max_context"], max_output_tokens=max_out)
 
-    async def update_config(self, target_url: str, target_key: str, max_context: int) -> None:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
         conn = await self._get_connection()
-        await conn.execute("INSERT OR REPLACE INTO proxy_config (id, target_api_url, target_api_key, max_context, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)", (target_url, target_key, max_context))
+        await conn.execute("INSERT OR REPLACE INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, updated_at) VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)", (target_url, target_key, max_context, max_output_tokens))
         await conn.commit()
 
     def _row_to_api_key(self, row) -> ApiKeyRecord:
@@ -722,9 +731,17 @@ class PostgreSQLDatabase(Database):
                     target_api_url TEXT NOT NULL,
                     target_api_key TEXT NOT NULL,
                     max_context INTEGER DEFAULT 128000,
+                    max_output_tokens INTEGER DEFAULT 4096,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Migration: add max_output_tokens if missing
+            config_cols = await conn.fetch("""
+                SELECT column_name FROM information_schema.columns WHERE table_name = 'proxy_config'
+            """)
+            config_col_names = {r["column_name"] for r in config_cols}
+            if "max_output_tokens" not in config_col_names:
+                await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
 
     async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
         pool = await self._get_pool()
@@ -956,15 +973,22 @@ class PostgreSQLDatabase(Database):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM proxy_config WHERE id = 1")
-            return ProxyConfig(target_api_url=row["target_api_url"], target_api_key=row["target_api_key"], max_context=row["max_context"]) if row else None
+            if not row:
+                return None
+            return ProxyConfig(
+                target_api_url=row["target_api_url"],
+                target_api_key=row["target_api_key"],
+                max_context=row["max_context"],
+                max_output_tokens=row.get("max_output_tokens", 4096),
+            )
 
-    async def update_config(self, target_url: str, target_key: str, max_context: int) -> None:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO proxy_config (id, target_api_url, target_api_key, max_context, updated_at) VALUES (1, $1, $2, $3, CURRENT_TIMESTAMP)
-                ON CONFLICT (id) DO UPDATE SET target_api_url = $1, target_api_key = $2, max_context = $3, updated_at = CURRENT_TIMESTAMP
-            """, target_url, target_key, max_context)
+                INSERT INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, updated_at) VALUES (1, $1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (id) DO UPDATE SET target_api_url = $1, target_api_key = $2, max_context = $3, max_output_tokens = $4, updated_at = CURRENT_TIMESTAMP
+            """, target_url, target_key, max_context, max_output_tokens)
 
     def _row_to_api_key(self, row) -> ApiKeyRecord:
         return ApiKeyRecord(

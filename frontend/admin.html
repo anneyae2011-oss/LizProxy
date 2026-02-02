@@ -155,7 +155,16 @@
                         <label for="max-context">Max Context Tokens</label>
                         <input type="number" id="max-context" name="max_context" 
                                min="1000" max="1000000" value="128000" required>
-                        <small class="form-hint">Maximum token limit for requests (default: 128,000)</small>
+                        <small class="form-hint">Maximum input token limit per request (default: 128,000)</small>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="max-output-tokens">Max Output Tokens</label>
+                        <input type="number" id="max-output-tokens" name="max_output_tokens" 
+                               min="1" max="128000" value="4096" required>
+                        <small class="form-hint">Maximum completion tokens per response (stops long outputs draining quota, default: 4,096)</small>
                     </div>
                 </div>
                 

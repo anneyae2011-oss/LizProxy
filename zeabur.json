@@ -24,8 +24,12 @@
       "required": false
     },
     "MAX_CONTEXT": {
-      "description": "Maximum context token limit",
+      "description": "Maximum input context token limit",
       "default": "128000"
+    },
+    "MAX_OUTPUT_TOKENS": {
+      "description": "Maximum completion tokens per response (stops long outputs)",
+      "default": "4096"
     },
     "DATABASE_URL": {
       "description": "PostgreSQL connection URL (optional, uses SQLite if not set)",

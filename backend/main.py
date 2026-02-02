@@ -95,6 +95,7 @@ class ConfigResponse(BaseModel):
     target_api_url: str
     target_api_key_masked: str
     max_context: int
+    max_output_tokens: int = 4096  # Max completion tokens per request (stops long outputs)
     max_keys_per_ip: int = 2  # Abuse protection: max API keys per IP
 
 
@@ -103,6 +104,7 @@ class ConfigUpdateRequest(BaseModel):
     target_api_url: Optional[str] = None
     target_api_key: Optional[str] = None
     max_context: Optional[int] = None
+    max_output_tokens: Optional[int] = None
 
 
 class BypassIpRequest(BaseModel):
@@ -569,6 +571,16 @@ async def get_max_context() -> int:
     
     # Default value
     return 128000
+
+
+async def get_max_output_tokens() -> int:
+    """Get the maximum completion tokens per request from config or database."""
+    config = await db.get_config()
+    if config:
+        return config.max_output_tokens
+    if settings:
+        return settings.max_output_tokens
+    return 4096
 
 
 async def get_target_api_config() -> Tuple[str, str]:
@@ -1182,6 +1194,11 @@ async def proxy_chat_completions(
     # Prepare request body
     request_body = chat_request.model_dump(exclude_none=True)
     
+    # Cap max_tokens (output limit) to prevent long completions draining quota
+    max_out = await get_max_output_tokens()
+    requested_max = request_body.get("max_tokens")
+    request_body["max_tokens"] = min(requested_max or max_out, max_out)
+    
     # Log the request for debugging
     print(f"[Proxy Request] Model: {request_body.get('model')}, Stream: {request_body.get('stream')}, Target: {target_url}")
     
@@ -1629,6 +1646,7 @@ async def admin_get_config(
             target_api_url=config.target_api_url,
             target_api_key_masked=masked_key,
             max_context=config.max_context,
+            max_output_tokens=config.max_output_tokens,
             max_keys_per_ip=settings.max_keys_per_ip if settings else 2,
         )
     
@@ -1644,6 +1662,7 @@ async def admin_get_config(
             target_api_url=settings.target_api_url,
             target_api_key_masked=masked_key,
             max_context=settings.max_context,
+            max_output_tokens=settings.max_output_tokens,
             max_keys_per_ip=settings.max_keys_per_ip,
         )
     
@@ -1679,17 +1698,19 @@ async def admin_update_config(
         target_url = config_update.target_api_url or current_config.target_api_url
         target_key = config_update.target_api_key or current_config.target_api_key
         max_context = config_update.max_context if config_update.max_context is not None else current_config.max_context
+        max_output_tokens = config_update.max_output_tokens if config_update.max_output_tokens is not None else current_config.max_output_tokens
     elif settings:
         target_url = config_update.target_api_url or settings.target_api_url
         target_key = config_update.target_api_key or settings.target_api_key
         max_context = config_update.max_context if config_update.max_context is not None else settings.max_context
+        max_output_tokens = config_update.max_output_tokens if config_update.max_output_tokens is not None else settings.max_output_tokens
     else:
         raise HTTPException(
             status_code=500,
             detail="Proxy not configured"
         )
     
-    await db.update_config(target_url, target_key, max_context)
+    await db.update_config(target_url, target_key, max_context, max_output_tokens)
     return {"message": "Configuration updated successfully"}
 
 

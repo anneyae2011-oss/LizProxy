@@ -19,6 +19,7 @@ class Settings:
     target_api_key: str
     port: int
     max_context: int
+    max_output_tokens: int  # Max completion tokens per request (stops long outputs draining quota)
     database_path: str
     database_url: Optional[str]  # PostgreSQL connection URL
     max_keys_per_ip: int  # Max API keys allowed per IP (abuse protection)
@@ -60,6 +61,8 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
     target_api_url = os.getenv("TARGET_API_URL", "https://api.openai.com/v1").strip()
     port = int(os.getenv("PORT", "8000").strip())
     max_context = int(os.getenv("MAX_CONTEXT", "128000").strip())
+    max_output_tokens = int(os.getenv("MAX_OUTPUT_TOKENS", "4096").strip())
+    max_output_tokens = max(1, min(max_output_tokens, 128000))  # Clamp 1–128000
     database_path = os.getenv("DATABASE_PATH", "./proxy.db").strip()
     
     # PostgreSQL URL (if set, will be used instead of SQLite)
@@ -77,6 +80,7 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         target_api_key=target_api_key,
         port=port,
         max_context=max_context,
+        max_output_tokens=max_output_tokens,
         database_path=database_path,
         database_url=database_url,
         max_keys_per_ip=max_keys_per_ip,
