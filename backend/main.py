@@ -83,6 +83,7 @@ class AdminKeyResponse(BaseModel):
     ip_address: str
     google_email: Optional[str]
     enabled: bool
+    bypass_ip_ban: bool
     current_rpm: int
     current_rpd: int
     created_at: str
@@ -102,6 +103,11 @@ class ConfigUpdateRequest(BaseModel):
     target_api_url: Optional[str] = None
     target_api_key: Optional[str] = None
     max_context: Optional[int] = None
+
+
+class BypassIpRequest(BaseModel):
+    """Request model for setting key bypass IP ban."""
+    bypass: bool
 
 
 class BanIpRequest(BaseModel):
@@ -510,9 +516,9 @@ async def validate_api_key(
             detail="This API key has been disabled"
         )
     
-    # Check if IP is banned
+    # Check if IP is banned (skip for keys with bypass_ip_ban set by admin)
     client_ip = get_client_ip(request)
-    if await db.is_ip_banned(client_ip):
+    if not key_record.bypass_ip_ban and await db.is_ip_banned(client_ip):
         raise HTTPException(
             status_code=403,
             detail="Your IP address has been banned"
@@ -1510,6 +1516,7 @@ async def admin_list_keys(
             ip_address=key.ip_address,
             google_email=key.google_email,
             enabled=key.enabled,
+            bypass_ip_ban=key.bypass_ip_ban,
             current_rpm=key.current_rpm,
             current_rpd=key.current_rpd,
             created_at=key.created_at.isoformat(),
@@ -1517,6 +1524,26 @@ async def admin_list_keys(
         )
         for key in keys
     ]
+
+
+@app.put(
+    "/admin/keys/{key_id}/bypass-ip",
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def admin_set_key_bypass_ip(
+    key_id: int,
+    body: BypassIpRequest,
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Set whether this API key bypasses IP ban checks.
+    
+    When bypass is True, requests with this key are allowed even from banned IPs.
+    Requires admin authentication via X-Admin-Password header.
+    """
+    updated = await db.set_key_bypass_ip_ban(key_id, body.bypass)
+    if not updated:
+        raise HTTPException(status_code=404, detail="API key not found")
+    return {"message": f"IP bypass {'enabled' if body.bypass else 'disabled'} for this key", "bypass": body.bypass}
 
 
 @app.delete(

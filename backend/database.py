@@ -37,6 +37,7 @@ class ApiKeyRecord:
     last_rpm_reset: datetime
     last_rpd_reset: datetime
     enabled: bool
+    bypass_ip_ban: bool  # If True, key is not blocked by IP ban list (admin-set)
     created_at: datetime
     last_used_at: Optional[datetime]
 
@@ -167,6 +168,11 @@ class Database(ABC):
     async def update_key_fingerprint(self, key_id: int, fingerprint: str) -> None:
         pass
     
+    @abstractmethod
+    async def set_key_bypass_ip_ban(self, key_id: int, bypass: bool) -> bool:
+        """Set whether this key bypasses IP ban checks. Returns True if key existed."""
+        pass
+    
     # Rate limit operations
     @abstractmethod
     async def update_usage(self, key_id: int, rpm: int, rpd: int) -> None:
@@ -289,6 +295,7 @@ class SQLiteDatabase(Database):
             ("google_email", "ALTER TABLE api_keys ADD COLUMN google_email TEXT"),
             ("browser_fingerprint", "ALTER TABLE api_keys ADD COLUMN browser_fingerprint TEXT"),
             ("full_key", "ALTER TABLE api_keys ADD COLUMN full_key TEXT"),
+            ("bypass_ip_ban", "ALTER TABLE api_keys ADD COLUMN bypass_ip_ban BOOLEAN DEFAULT 0"),
         ]:
             try:
                 await conn.execute(f"SELECT {col} FROM api_keys LIMIT 1")
@@ -402,6 +409,12 @@ class SQLiteDatabase(Database):
         conn = await self._get_connection()
         await conn.execute("UPDATE api_keys SET browser_fingerprint = ? WHERE id = ?", (fingerprint, key_id))
         await conn.commit()
+
+    async def set_key_bypass_ip_ban(self, key_id: int, bypass: bool) -> bool:
+        conn = await self._get_connection()
+        cursor = await conn.execute("UPDATE api_keys SET bypass_ip_ban = ? WHERE id = ?", (1 if bypass else 0, key_id))
+        await conn.commit()
+        return cursor.rowcount > 0
 
     async def update_usage(self, key_id: int, rpm: int, rpd: int) -> None:
         conn = await self._get_connection()
@@ -586,7 +599,9 @@ class SQLiteDatabase(Database):
             browser_fingerprint=row["browser_fingerprint"] if "browser_fingerprint" in row.keys() else None,
             current_rpm=row["current_rpm"], current_rpd=row["current_rpd"],
             last_rpm_reset=self._parse_ts(row["last_rpm_reset"]), last_rpd_reset=self._parse_ts(row["last_rpd_reset"]),
-            enabled=bool(row["enabled"]), created_at=self._parse_ts(row["created_at"]),
+            enabled=bool(row["enabled"]),
+            bypass_ip_ban=bool(row["bypass_ip_ban"]) if "bypass_ip_ban" in row.keys() else False,
+            created_at=self._parse_ts(row["created_at"]),
             last_used_at=self._parse_ts(row["last_used_at"]) if row["last_used_at"] else None,
         )
 
@@ -664,6 +679,8 @@ class PostgreSQLDatabase(Database):
                 await conn.execute("ALTER TABLE api_keys ADD COLUMN google_id TEXT")
             if 'google_email' not in existing_col_names:
                 await conn.execute("ALTER TABLE api_keys ADD COLUMN google_email TEXT")
+            if 'bypass_ip_ban' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN bypass_ip_ban BOOLEAN DEFAULT FALSE")
             
             # Create indexes (safe to run multiple times)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_ip ON api_keys(ip_address)")
@@ -775,6 +792,12 @@ class PostgreSQLDatabase(Database):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute("UPDATE api_keys SET browser_fingerprint = $1 WHERE id = $2", fingerprint, key_id)
+
+    async def set_key_bypass_ip_ban(self, key_id: int, bypass: bool) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("UPDATE api_keys SET bypass_ip_ban = $1 WHERE id = $2", bypass, key_id)
+            return result == "UPDATE 1"
 
     async def update_usage(self, key_id: int, rpm: int, rpd: int) -> None:
         pool = await self._get_pool()
@@ -953,7 +976,9 @@ class PostgreSQLDatabase(Database):
             browser_fingerprint=row.get("browser_fingerprint"),
             current_rpm=row["current_rpm"], current_rpd=row["current_rpd"],
             last_rpm_reset=row["last_rpm_reset"], last_rpd_reset=row["last_rpd_reset"],
-            enabled=row["enabled"], created_at=row["created_at"],
+            enabled=row["enabled"],
+            bypass_ip_ban=row.get("bypass_ip_ban", False),
+            created_at=row["created_at"],
             last_used_at=row["last_used_at"],
         )
 

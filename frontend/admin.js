@@ -455,7 +455,7 @@ function displayTopRequests(logs) {
 
 async function loadKeys(silent = false) {
     if (!silent) {
-        keysTbody.innerHTML = '<tr><td colspan="6" class="loading-cell">Loading...</td></tr>';
+        keysTbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Loading...</td></tr>';
     }
     noKeysMessage.classList.add('hidden');
     
@@ -472,12 +472,12 @@ async function loadKeys(silent = false) {
             logout();
         } else if (!silent) {
             logToConsole('Failed to load API keys', 'error');
-            keysTbody.innerHTML = '<tr><td colspan="6" class="loading-cell">Error loading keys</td></tr>';
+            keysTbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Error loading keys</td></tr>';
         }
     } catch (error) {
         if (!silent) {
             logToConsole(`Keys error: ${error.message}`, 'error');
-            keysTbody.innerHTML = '<tr><td colspan="6" class="loading-cell">Error loading keys</td></tr>';
+            keysTbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Error loading keys</td></tr>';
         }
     }
 }
@@ -499,6 +499,17 @@ function displayKeys(keys) {
                     ${key.enabled ? 'Enabled' : 'Disabled'}
                 </span>
             </td>
+            <td>
+                <span class="status-badge ${key.bypass_ip_ban ? 'enabled' : 'disabled'}">
+                    ${key.bypass_ip_ban ? 'Bypass' : 'No'}
+                </span>
+                <div class="action-buttons" onclick="event.stopPropagation()" style="margin-top: 4px;">
+                    <button onclick="setBypassIp(${key.id}, ${!key.bypass_ip_ban})" 
+                            class="btn btn-ghost btn-sm" title="${key.bypass_ip_ban ? 'Disable IP bypass' : 'Allow this key from banned IPs'}">
+                        ${key.bypass_ip_ban ? 'Disable bypass' : 'Enable bypass'}
+                    </button>
+                </div>
+            </td>
             <td>${key.current_rpm}/10</td>
             <td>${key.current_rpd}/500</td>
             <td>
@@ -514,6 +525,30 @@ function displayKeys(keys) {
             </td>
         </tr>
     `).join('');
+}
+
+async function setBypassIp(keyId, bypass) {
+    try {
+        const response = await adminFetch(`/admin/keys/${keyId}/bypass-ip`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bypass })
+        });
+        if (response.ok) {
+            logToConsole(`IP bypass ${bypass ? 'enabled' : 'disabled'} for key`, 'success');
+            showAdminStatus(bypass ? 'Key can now be used from banned IPs' : 'IP bypass disabled for this key', 'success');
+            await loadKeys();
+        } else if (response.status === 401) {
+            logout();
+        } else if (response.status === 404) {
+            logToConsole('Key not found', 'error');
+            await loadKeys();
+        } else {
+            logToConsole('Failed to set IP bypass', 'error');
+        }
+    } catch (error) {
+        logToConsole(`Set bypass error: ${error.message}`, 'error');
+    }
 }
 
 async function toggleKey(keyId, currentlyEnabled) {
