@@ -12,7 +12,6 @@ Or with custom port:
 """
 
 import os
-import sys
 
 # Load environment variables from .env file before importing anything else
 from dotenv import load_dotenv

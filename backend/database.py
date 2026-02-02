@@ -123,7 +123,7 @@ class Database(ABC):
     
     # API Key operations
     @abstractmethod
-    async def create_api_key(self, google_id: str, google_email: str, key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
+    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
         pass
     
     @abstractmethod
@@ -144,6 +144,11 @@ class Database(ABC):
     
     @abstractmethod
     async def get_all_keys(self) -> List[ApiKeyRecord]:
+        pass
+    
+    @abstractmethod
+    async def count_keys_by_ip(self, ip_address: str) -> int:
+        """Return the number of API keys currently associated with this IP."""
         pass
     
     @abstractmethod
@@ -331,7 +336,7 @@ class SQLiteDatabase(Database):
         
         await conn.commit()
 
-    async def create_api_key(self, google_id: str, google_email: str, key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
+    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
         conn = await self._get_connection()
         cursor = await conn.execute(
             "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key) VALUES (?, ?, ?, ?, ?, ?)",
@@ -369,6 +374,12 @@ class SQLiteDatabase(Database):
         cursor = await conn.execute("SELECT * FROM api_keys ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         return [self._row_to_api_key(row) for row in rows]
+
+    async def count_keys_by_ip(self, ip_address: str) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute("SELECT COUNT(*) FROM api_keys WHERE ip_address = ?", (ip_address,))
+        row = await cursor.fetchone()
+        return row[0] if row else 0
 
     async def delete_key(self, key_id: int) -> bool:
         conn = await self._get_connection()
@@ -698,7 +709,7 @@ class PostgreSQLDatabase(Database):
                 )
             """)
 
-    async def create_api_key(self, google_id: str, google_email: str, key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
+    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -736,6 +747,12 @@ class PostgreSQLDatabase(Database):
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM api_keys ORDER BY created_at DESC")
             return [self._row_to_api_key(row) for row in rows]
+
+    async def count_keys_by_ip(self, ip_address: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT COUNT(*) FROM api_keys WHERE ip_address = $1", ip_address)
+            return row[0] if row else 0
 
     async def delete_key(self, key_id: int) -> bool:
         pool = await self._get_pool()

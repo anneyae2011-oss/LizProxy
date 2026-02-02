@@ -34,6 +34,10 @@
     "PORT": {
       "description": "Port to run the server on",
       "default": "8080"
+    },
+    "MAX_KEYS_PER_IP": {
+      "description": "Max API keys allowed per IP (abuse protection, 1-20)",
+      "default": "2"
     }
   },
   "ports": [

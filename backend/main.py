@@ -31,7 +31,8 @@ from backend.database import Database, ApiKeyRecord, create_database
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "https://lizley.zeabur.app/auth/callback")
-SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+# Use fixed SESSION_SECRET so sessions survive restarts; set in production
+SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
 
 # Initialize OAuth
 oauth = OAuth()
@@ -93,6 +94,7 @@ class ConfigResponse(BaseModel):
     target_api_url: str
     target_api_key_masked: str
     max_context: int
+    max_keys_per_ip: int = 2  # Abuse protection: max API keys per IP
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -812,11 +814,16 @@ async def google_callback(request: Request):
             )
             return response
         
+        # Abuse protection: limit keys per IP
+        client_ip = get_client_ip(request)
+        max_keys = (settings.max_keys_per_ip if settings else 2)
+        if await db.count_keys_by_ip(client_ip) >= max_keys:
+            return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
+        
         # Generate new API key for this Google account
         api_key = generate_api_key()
         key_hash = hash_api_key(api_key)
         key_prefix = get_key_prefix(api_key)
-        client_ip = get_client_ip(request)
         
         # Store in database
         await db.create_api_key(
@@ -842,7 +849,8 @@ async def google_callback(request: Request):
         
     except Exception as e:
         print(f"[OAuth Error] {e}")
-        return RedirectResponse(url=f"/?error=oauth_failed&message={str(e)}")
+        # Don't put exception details in URL (security)
+        return RedirectResponse(url="/?error=oauth_failed")
 
 
 @app.get("/auth/logout")
@@ -925,6 +933,14 @@ async def generate_key_endpoint(
                 key_prefix=fingerprint_key.key_prefix,
                 message="Welcome back! Your IP changed but we recognized your browser."
             )
+    
+    # Abuse protection: limit keys per IP
+    max_keys = (settings.max_keys_per_ip if settings else 2)
+    if await db.count_keys_by_ip(client_ip) >= max_keys:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Maximum number of API keys per IP ({max_keys}) reached. Use an existing key or contact support."
+        )
     
     # 3. Generate new key for new user
     new_key = generate_api_key()
@@ -1248,7 +1264,7 @@ async def _handle_streaming_request(
                     try:
                         error_data = json_module.loads(error_text)
                         error_message = error_data.get('error', {}).get('message') or error_data.get('detail') or error_text
-                    except:
+                    except (json_module.JSONDecodeError, TypeError):
                         error_message = error_text or f"Upstream returned {response.status_code}"
                     
                     await db.log_usage(
@@ -1586,6 +1602,7 @@ async def admin_get_config(
             target_api_url=config.target_api_url,
             target_api_key_masked=masked_key,
             max_context=config.max_context,
+            max_keys_per_ip=settings.max_keys_per_ip if settings else 2,
         )
     
     # Fall back to settings
@@ -1600,6 +1617,7 @@ async def admin_get_config(
             target_api_url=settings.target_api_url,
             target_api_key_masked=masked_key,
             max_context=settings.max_context,
+            max_keys_per_ip=settings.max_keys_per_ip,
         )
     
     raise HTTPException(

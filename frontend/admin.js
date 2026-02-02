@@ -287,6 +287,8 @@ async function loadConfig() {
             targetKeyInput.value = '';
             targetKeyInput.placeholder = data.target_api_key_masked || 'sk-...';
             maxContextInput.value = data.max_context || 128000;
+            const maxKeysEl = document.getElementById('max-keys-per-ip');
+            if (maxKeysEl) maxKeysEl.textContent = data.max_keys_per_ip ?? '—';
         } else if (response.status === 401) {
             logout();
         } else {
@@ -726,12 +728,16 @@ function displayBannedIps(ips) {
             <td>${ip.reason ? escapeHtml(ip.reason) : '<em>No reason</em>'}</td>
             <td>${formatDate(ip.banned_at)}</td>
             <td>
-                <button onclick="unbanIp('${escapeHtml(ip.ip_address)}')" class="btn btn-ghost btn-sm">
+                <button type="button" class="btn btn-ghost btn-sm unban-btn" data-ip="${escapeAttr(ip.ip_address)}">
                     Unban
                 </button>
             </td>
         </tr>
     `).join('');
+    // Attach unban handlers (avoids putting IP in onclick - XSS safe)
+    bannedTbody.querySelectorAll('.unban-btn').forEach(btn => {
+        btn.addEventListener('click', () => unbanIp(btn.getAttribute('data-ip')));
+    });
 }
 
 async function banIp(event) {
@@ -902,6 +908,14 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/** Escape for HTML attribute value (e.g. data-ip) to prevent break-out and XSS */
+function escapeAttr(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML.replace(/"/g, '&quot;');
 }
 
 

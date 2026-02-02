@@ -145,7 +145,7 @@
                     <div class="form-group">
                         <label for="target-key">Target API Key</label>
                         <input type="password" id="target-key" name="target_api_key" 
-                               placeholder="sk-..." required>
+                               placeholder="sk-...">
                         <small class="form-hint">Your API key for the target service (stored securely)</small>
                     </div>
                 </div>
@@ -158,6 +158,10 @@
                         <small class="form-hint">Maximum token limit for requests (default: 128,000)</small>
                     </div>
                 </div>
+                
+                <p class="form-hint" style="margin-top: var(--space-sm);">
+                    Abuse protection: max <span id="max-keys-per-ip">—</span> API key(s) per IP (set via <code>MAX_KEYS_PER_IP</code> env)
+                </p>
                 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Configuration</button>

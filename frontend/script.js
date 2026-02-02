@@ -88,8 +88,17 @@ async function init() {
     
     if (urlParams.has('error')) {
         const error = urlParams.get('error');
-        const message = urlParams.get('message') || error;
-        showStatus(`Login failed: ${message}`, 'error');
+        const limit = urlParams.get('limit');
+        let message;
+        if (error === 'too_many_keys') {
+            message = limit
+                ? `This IP already has the maximum number of API keys (${limit}). Use an existing key or contact support.`
+                : 'This IP already has the maximum number of API keys. Use an existing key or contact support.';
+        } else {
+            message = urlParams.get('message') || error;
+            message = `Login failed: ${message}`;
+        }
+        showStatus(message, 'error');
         window.history.replaceState({}, document.title, '/');
     }
     

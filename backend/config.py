@@ -21,6 +21,7 @@ class Settings:
     max_context: int
     database_path: str
     database_url: Optional[str]  # PostgreSQL connection URL
+    max_keys_per_ip: int  # Max API keys allowed per IP (abuse protection)
 
 
 def load_settings(env_path: Optional[str] = None) -> Settings:
@@ -66,6 +67,10 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
     if database_url:
         database_url = database_url.strip()
     
+    # Abuse protection: max API keys per IP (default 2)
+    max_keys_per_ip = int(os.getenv("MAX_KEYS_PER_IP", "2").strip())
+    max_keys_per_ip = max(1, min(max_keys_per_ip, 20))  # Clamp 1–20
+    
     return Settings(
         admin_password=admin_password,
         target_api_url=target_api_url,
@@ -74,4 +79,5 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         max_context=max_context,
         database_path=database_path,
         database_url=database_url,
+        max_keys_per_ip=max_keys_per_ip,
     )
