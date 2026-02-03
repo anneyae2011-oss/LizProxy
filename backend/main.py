@@ -24,6 +24,7 @@ from authlib.integrations.starlette_client import OAuth
 
 from backend.config import load_settings, Settings
 from backend.database import Database, ApiKeyRecord, create_database
+from backend.session_secret import get_or_create_session_secret
 
 
 # ==================== Google OAuth Configuration ====================
@@ -31,20 +32,11 @@ from backend.database import Database, ApiKeyRecord, create_database
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "https://lizley.zeabur.app/auth/callback")
-# Use fixed SESSION_SECRET so sessions survive restarts (avoids logout on refresh/restart)
-if os.getenv("SESSION_SECRET"):
-    SESSION_SECRET = os.getenv("SESSION_SECRET").strip()
-else:
-    _session_secret_file = Path.cwd() / ".session_secret"
-    if _session_secret_file.exists():
-        SESSION_SECRET = _session_secret_file.read_text().strip()
-    else:
-        SESSION_SECRET = secrets.token_hex(32)
-        try:
-            _session_secret_file.write_text(SESSION_SECRET)
-        except OSError:
-            # Read-only filesystem (e.g. Zeabur/Heroku); use in-memory secret so app still starts
-            pass
+# Persistent session secret from DB (no .env required; survives restarts)
+SESSION_SECRET = get_or_create_session_secret(
+    database_url=os.getenv("DATABASE_URL"),
+    database_path=os.getenv("DATABASE_PATH", "./proxy.db"),
+)
 
 # Initialize OAuth
 oauth = OAuth()

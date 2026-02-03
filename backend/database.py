@@ -352,6 +352,9 @@ class SQLiteDatabase(Database):
         except Exception:
             await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
         
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
+        )
         await conn.commit()
 
     async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
@@ -756,6 +759,10 @@ class PostgreSQLDatabase(Database):
             config_col_names = {r["column_name"] for r in config_cols}
             if "max_output_tokens" not in config_col_names:
                 await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
+            
+            await conn.execute(
+                "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
+            )
 
     async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
         pool = await self._get_pool()
