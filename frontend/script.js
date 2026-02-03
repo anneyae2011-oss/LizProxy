@@ -173,7 +173,7 @@ async function fetchUsage() {
  */
 function updateUsageDisplay(data) {
     const rpmLimitVal = 10;
-    const rpdLimitVal = 150;
+    const rpdLimitVal = data.tokens_per_day_limit ?? 150000;
     
     // Update RPM
     const rpmPercent = (data.current_rpm / rpmLimitVal) * 100;
@@ -181,11 +181,11 @@ function updateUsageDisplay(data) {
     rpmUsed.textContent = data.current_rpm;
     rpmLimit.textContent = rpmLimitVal;
     
-    // Update RPD
+    // Update tokens per day (rpd_used/current_rpd is now tokens used today)
     const rpdPercent = (data.current_rpd / rpdLimitVal) * 100;
     rpdProgress.style.width = `${Math.min(rpdPercent, 100)}%`;
-    rpdUsed.textContent = data.current_rpd;
-    rpdLimit.textContent = rpdLimitVal;
+    rpdUsed.textContent = typeof data.current_rpd === 'number' ? data.current_rpd.toLocaleString() : data.current_rpd;
+    rpdLimit.textContent = typeof rpdLimitVal === 'number' ? rpdLimitVal.toLocaleString() : rpdLimitVal;
 }
 
 /**

@@ -207,6 +207,11 @@ class Database(ABC):
         pass
     
     @abstractmethod
+    async def get_daily_tokens_used(self, key_id: int, since_utc: str, until_utc: str) -> int:
+        """Return sum of tokens_used for this key between since_utc and until_utc (ISO format)."""
+        pass
+
+    @abstractmethod
     async def get_usage_stats(self, key_id: int) -> UsageStats:
         pass
     
@@ -472,6 +477,15 @@ class SQLiteDatabase(Database):
             (key_id, ip_address, model, input_tokens, output_tokens, tokens, success, error_message)
         )
         await conn.commit()
+
+    async def get_daily_tokens_used(self, key_id: int, since_utc: str, until_utc: str) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute("""
+            SELECT COALESCE(SUM(tokens_used), 0) FROM usage_logs
+            WHERE api_key_id = ? AND request_time >= ? AND request_time < ?
+        """, (key_id, since_utc, until_utc))
+        row = await cursor.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
 
     async def get_usage_stats(self, key_id: int) -> UsageStats:
         conn = await self._get_connection()
@@ -861,6 +875,15 @@ class PostgreSQLDatabase(Database):
                 "INSERT INTO usage_logs (api_key_id, ip_address, model, input_tokens, output_tokens, tokens_used, success, error_message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 key_id, ip_address, model, input_tokens, output_tokens, tokens, success, error_message
             )
+
+    async def get_daily_tokens_used(self, key_id: int, since_utc: str, until_utc: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT COALESCE(SUM(tokens_used), 0) AS tokens_sum FROM usage_logs
+                WHERE api_key_id = $1 AND request_time >= $2::timestamp AND request_time < $3::timestamp
+            """, key_id, since_utc, until_utc)
+            return int(row["tokens_sum"]) if row and row["tokens_sum"] is not None else 0
 
     async def get_usage_stats(self, key_id: int) -> UsageStats:
         pool = await self._get_pool()

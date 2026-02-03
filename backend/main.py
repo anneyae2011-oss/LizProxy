@@ -85,7 +85,8 @@ class AdminKeyResponse(BaseModel):
     enabled: bool
     bypass_ip_ban: bool
     current_rpm: int
-    current_rpd: int
+    current_rpd: int  # Request count today (display)
+    tokens_used_today: int  # Tokens used today (daily quota)
     created_at: str
     last_used_at: Optional[str]
 
@@ -229,7 +230,8 @@ class RateLimitResult:
 # ==================== Constants ====================
 
 RPM_LIMIT = 10
-RPD_LIMIT = 150
+RPD_LIMIT = 150  # Request count (display only; daily limit is token-based)
+TOKENS_PER_DAY_LIMIT = 150_000  # Daily token quota per key (enforced)
 RPM_WINDOW_SECONDS = 60
 MAX_TOKENS_PER_SECOND = 35  # Maximum tokens per second for streaming
 
@@ -327,16 +329,17 @@ def get_client_ip(request: Request) -> str:
 async def check_and_update_rate_limits(
     key_record: ApiKeyRecord,
     database: "Database",
+    estimated_tokens: int = 0,
 ) -> RateLimitResult:
     """Check rate limits for an API key and update counters if allowed.
     
-    This function checks both RPM (requests per minute) and RPD (requests per day)
-    limits. It handles automatic reset of counters when the time window has passed.
-    Uses atomic increment to prevent race conditions with concurrent requests.
+    Enforces RPM (requests per minute) and daily token quota (TOKENS_PER_DAY_LIMIT).
+    Uses atomic increment for request count; token usage is summed from usage_logs.
     
     Args:
         key_record: The API key record to check.
         database: The database instance for updating counters.
+        estimated_tokens: Estimated tokens for this request (input + max output); used for daily token check.
     
     Returns:
         RateLimitResult indicating whether the request is allowed and any
@@ -355,23 +358,20 @@ async def check_and_update_rate_limits(
     
     seconds_since_rpm_reset = (now - last_rpm_reset).total_seconds()
     if seconds_since_rpm_reset >= RPM_WINDOW_SECONDS:
-        # Reset RPM counter
         await database.reset_rpm(key_record.id)
         current_rpm = 0
     
-    # Check if RPD needs to be reset (new calendar day in UTC)
+    # Check if RPD counter needs to be reset (new calendar day in UTC)
     last_rpd_reset = key_record.last_rpd_reset
     if last_rpd_reset.tzinfo is None:
         last_rpd_reset = last_rpd_reset.replace(tzinfo=timezone.utc)
     
     if now.date() > last_rpd_reset.date():
-        # Reset RPD counter
         await database.reset_rpd(key_record.id)
         current_rpd = 0
     
     # Check RPM limit
     if current_rpm >= RPM_LIMIT:
-        # Calculate retry_after: seconds until RPM window resets
         retry_after = max(1, int(RPM_WINDOW_SECONDS - seconds_since_rpm_reset))
         return RateLimitResult(
             allowed=False,
@@ -379,12 +379,14 @@ async def check_and_update_rate_limits(
             retry_after=retry_after,
         )
     
-    # Check RPD limit
-    if current_rpd >= RPD_LIMIT:
-        # Calculate retry_after: seconds until midnight UTC
-        midnight_utc = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+    # Check daily token limit (tokens per day, not request count)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    daily_tokens_used = await database.get_daily_tokens_used(
+        key_record.id, today_start.isoformat(), today_end.isoformat()
+    )
+    if daily_tokens_used + estimated_tokens > TOKENS_PER_DAY_LIMIT:
+        midnight_utc = today_end
         retry_after = int((midnight_utc - now).total_seconds())
         return RateLimitResult(
             allowed=False,
@@ -392,7 +394,7 @@ async def check_and_update_rate_limits(
             retry_after=retry_after,
         )
     
-    # Request is allowed - atomically increment counters to prevent race conditions
+    # Request is allowed - atomically increment request counters
     new_rpm, new_rpd = await database.increment_usage(key_record.id)
     
     return RateLimitResult(
@@ -414,7 +416,7 @@ def create_rate_limit_response(result: RateLimitResult) -> JSONResponse:
     if result.rpm_exceeded:
         message = "Rate limit exceeded. Please wait before making more requests."
     else:
-        message = "Daily request limit exceeded. Resets at midnight UTC."
+        message = "Daily token limit exceeded. Resets at midnight UTC."
     
     return JSONResponse(
         status_code=429,
@@ -889,13 +891,22 @@ async def get_current_user(request: Request, google_id: Optional[str] = Cookie(d
     if not key_record:
         raise HTTPException(status_code=404, detail="No API key found")
     
+    # Tokens used today (UTC day) for daily quota display
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    tokens_today = await db.get_daily_tokens_used(
+        key_record.id, today_start.isoformat(), today_end.isoformat()
+    )
+    
     return {
         "key_prefix": key_record.key_prefix,
         "full_key": key_record.full_key,
         "google_email": key_record.google_email,
         "enabled": key_record.enabled,
         "current_rpm": key_record.current_rpm,
-        "current_rpd": key_record.current_rpd,
+        "current_rpd": tokens_today,  # tokens used today (daily quota is token-based)
+        "tokens_per_day_limit": TOKENS_PER_DAY_LIMIT,
     }
 
 
@@ -1011,14 +1022,22 @@ async def get_my_key(
             detail="No API key found for your IP address"
         )
     
+    # Tokens used today (UTC day) for display
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    tokens_today = await db.get_daily_tokens_used(
+        key_record.id, today_start.isoformat(), today_end.isoformat()
+    )
+    
     return KeyInfoResponse(
         key_prefix=key_record.key_prefix,
         enabled=key_record.enabled,
         created_at=key_record.created_at.isoformat(),
         rpm_used=key_record.current_rpm,
         rpm_limit=RPM_LIMIT,
-        rpd_used=key_record.current_rpd,
-        rpd_limit=RPD_LIMIT,
+        rpd_used=tokens_today,
+        rpd_limit=TOKENS_PER_DAY_LIMIT,
     )
 
 
@@ -1067,16 +1086,22 @@ async def get_my_usage(
         await db.reset_rpd(key_record.id)
         current_rpd = 0
     
-    # Get usage stats
+    # Tokens used today (UTC day) for daily quota display
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    tokens_today = await db.get_daily_tokens_used(
+        key_record.id, today_start.isoformat(), today_end.isoformat()
+    )
+    
     usage_stats = await db.get_usage_stats(key_record.id)
     
     return UsageResponse(
         rpm_used=current_rpm,
         rpm_limit=RPM_LIMIT,
         rpm_remaining=max(0, RPM_LIMIT - current_rpm),
-        rpd_used=current_rpd,
-        rpd_limit=RPD_LIMIT,
-        rpd_remaining=max(0, RPD_LIMIT - current_rpd),
+        rpd_used=tokens_today,
+        rpd_limit=TOKENS_PER_DAY_LIMIT,
+        rpd_remaining=max(0, TOKENS_PER_DAY_LIMIT - tokens_today),
         total_tokens=usage_stats.total_tokens,
     )
 
@@ -1173,8 +1198,9 @@ async def proxy_chat_completions(
     """
     key_record, client_ip = key_data
     
-    # Check rate limits
-    rate_result = await check_and_update_rate_limits(key_record, db)
+    # Check rate limits (pass estimated tokens for daily token quota)
+    estimated_tokens = token_count + (await get_max_output_tokens())
+    rate_result = await check_and_update_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
     if not rate_result.allowed:
         return create_rate_limit_response(rate_result)
     
@@ -1526,8 +1552,15 @@ async def admin_list_keys(
         List of all API keys with metadata.
     """
     keys = await db.get_all_keys()
-    return [
-        AdminKeyResponse(
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    result = []
+    for key in keys:
+        tokens_today = await db.get_daily_tokens_used(
+            key.id, today_start.isoformat(), today_end.isoformat()
+        )
+        result.append(AdminKeyResponse(
             id=key.id,
             key_prefix=key.key_prefix,
             ip_address=key.ip_address,
@@ -1536,11 +1569,11 @@ async def admin_list_keys(
             bypass_ip_ban=key.bypass_ip_ban,
             current_rpm=key.current_rpm,
             current_rpd=key.current_rpd,
+            tokens_used_today=tokens_today,
             created_at=key.created_at.isoformat(),
             last_used_at=key.last_used_at.isoformat() if key.last_used_at else None,
-        )
-        for key in keys
-    ]
+        ))
+    return result
 
 
 @app.put(
