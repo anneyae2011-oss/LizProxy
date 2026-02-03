@@ -229,7 +229,7 @@ class RateLimitResult:
 # ==================== Constants ====================
 
 RPM_LIMIT = 10
-RPD_LIMIT = 500
+RPD_LIMIT = 150
 RPM_WINDOW_SECONDS = 60
 MAX_TOKENS_PER_SECOND = 35  # Maximum tokens per second for streaming
 

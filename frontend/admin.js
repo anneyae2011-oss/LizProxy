@@ -515,7 +515,7 @@ function displayKeys(keys) {
                 </div>
             </td>
             <td>${key.current_rpm}/10</td>
-            <td>${key.current_rpd}/500</td>
+            <td>${key.current_rpd}/150</td>
             <td>
                 <div class="action-buttons" onclick="event.stopPropagation()">
                     <button onclick="toggleKey(${key.id}, ${key.enabled})" 

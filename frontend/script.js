@@ -173,7 +173,7 @@ async function fetchUsage() {
  */
 function updateUsageDisplay(data) {
     const rpmLimitVal = 10;
-    const rpdLimitVal = 500;
+    const rpdLimitVal = 150;
     
     // Update RPM
     const rpmPercent = (data.current_rpm / rpmLimitVal) * 100;
