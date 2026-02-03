@@ -40,7 +40,11 @@ else:
         SESSION_SECRET = _session_secret_file.read_text().strip()
     else:
         SESSION_SECRET = secrets.token_hex(32)
-        _session_secret_file.write_text(SESSION_SECRET)
+        try:
+            _session_secret_file.write_text(SESSION_SECRET)
+        except OSError:
+            # Read-only filesystem (e.g. Zeabur/Heroku); use in-memory secret so app still starts
+            pass
 
 # Initialize OAuth
 oauth = OAuth()
