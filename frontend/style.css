@@ -367,6 +367,7 @@ body::before {
     animation: cardBreathe 6s ease-in-out infinite;
     transition: all var(--duration) var(--ease-silk);
     position: relative;
+    z-index: 1;
 }
 
 /* Bloom glow effect */
@@ -560,6 +561,17 @@ h3 {
     justify-content: center;
     gap: var(--space-sm);
     margin-top: var(--space-md);
+    position: relative;
+    z-index: 2;
+}
+
+/* Ensure Copy Key is clickable above overlays and has a good touch target */
+#copy-btn {
+    cursor: pointer;
+    min-height: 44px;
+    min-width: 120px;
+    position: relative;
+    z-index: 2;
 }
 
 
@@ -692,9 +704,13 @@ h3 {
     transform: translateY(-2px);
 }
 
-/* Copy button sparkle effect */
+/* Copy button - always clickable, good touch target */
 .btn-copy {
     position: relative;
+    z-index: 2;
+    cursor: pointer;
+    min-height: 44px;
+    padding: 0.75rem 1.5rem;
 }
 
 .btn-copy.copied::after {

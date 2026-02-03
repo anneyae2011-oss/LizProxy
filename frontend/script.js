@@ -247,6 +247,9 @@ function showHasKeyView() {
     noKeyView.classList.add('hidden');
     hasKeyView.classList.remove('hidden');
     
+    // Show usage section (Per minute + Tokens per day) so TPD is always visible when logged in
+    if (usageSection) usageSection.classList.remove('hidden');
+    
     // Update key prefix display
     if (currentKeyPrefix) {
         keyPrefixEl.textContent = currentKeyPrefix;
