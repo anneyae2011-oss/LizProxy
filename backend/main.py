@@ -831,14 +831,16 @@ async def google_callback(request: Request):
         if existing_key:
             # User already has a key - redirect with key info
             response = RedirectResponse(url=f"/?key_prefix={existing_key.key_prefix}&existing=true&email={google_email}")
-            # Set cookie with Google ID for session persistence
+            # Set cookie with Google ID for session persistence (secure only on HTTPS so localhost works)
+            _secure = request.url.scheme == "https"
             response.set_cookie(
                 key="google_id",
                 value=google_id,
+                path="/",
                 httponly=True,
-                secure=True,
+                secure=_secure,
                 samesite="lax",
-                max_age=60*60*24*365  # 1 year
+                max_age=60*60*24*365,  # 1 year
             )
             return response
         
@@ -865,13 +867,15 @@ async def google_callback(request: Request):
         
         # Redirect with the new key (only shown once!)
         response = RedirectResponse(url=f"/?key={api_key}&key_prefix={key_prefix}&new=true&email={google_email}")
+        _secure = request.url.scheme == "https"
         response.set_cookie(
             key="google_id",
             value=google_id,
+            path="/",
             httponly=True,
-            secure=True,
+            secure=_secure,
             samesite="lax",
-            max_age=60*60*24*365  # 1 year
+            max_age=60*60*24*365,  # 1 year
         )
         return response
         
@@ -885,7 +889,7 @@ async def google_callback(request: Request):
 async def logout(request: Request):
     """Clear the session and logout."""
     response = RedirectResponse(url="/")
-    response.delete_cookie("google_id")
+    response.delete_cookie("google_id", path="/", secure=(request.url.scheme == "https"))
     return response
 
 
@@ -906,6 +910,7 @@ async def get_current_user(request: Request, google_id: Optional[str] = Cookie(d
     tokens_today = await db.get_daily_tokens_used(
         key_record.id, today_start.isoformat(), today_end.isoformat()
     )
+    usage_stats = await db.get_usage_stats(key_record.id)
     
     return {
         "key_prefix": key_record.key_prefix,
@@ -915,6 +920,7 @@ async def get_current_user(request: Request, google_id: Optional[str] = Cookie(d
         "current_rpm": key_record.current_rpm,
         "current_rpd": tokens_today,  # tokens used today (daily quota is token-based)
         "tokens_per_day_limit": TOKENS_PER_DAY_LIMIT,
+        "total_tokens": usage_stats.total_tokens,
     }
 
 

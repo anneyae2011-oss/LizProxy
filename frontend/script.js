@@ -169,23 +169,31 @@ async function fetchUsage() {
 }
 
 /**
- * Update the usage display with new data
+ * Update the usage display with new data (RPM, tokens per day, total tokens)
  */
 function updateUsageDisplay(data) {
     const rpmLimitVal = 10;
     const rpdLimitVal = data.tokens_per_day_limit ?? 150000;
     
     // Update RPM
-    const rpmPercent = (data.current_rpm / rpmLimitVal) * 100;
+    const rpm = data.current_rpm ?? 0;
+    const rpmPercent = rpmLimitVal > 0 ? (rpm / rpmLimitVal) * 100 : 0;
     rpmProgress.style.width = `${Math.min(rpmPercent, 100)}%`;
-    rpmUsed.textContent = data.current_rpm;
+    rpmUsed.textContent = rpm;
     rpmLimit.textContent = rpmLimitVal;
     
-    // Update tokens per day (rpd_used/current_rpd is now tokens used today)
-    const rpdPercent = (data.current_rpd / rpdLimitVal) * 100;
+    // Update tokens per day (current_rpd = tokens used today)
+    const rpd = data.current_rpd ?? 0;
+    const rpdPercent = rpdLimitVal > 0 ? (rpd / rpdLimitVal) * 100 : 0;
     rpdProgress.style.width = `${Math.min(rpdPercent, 100)}%`;
-    rpdUsed.textContent = typeof data.current_rpd === 'number' ? data.current_rpd.toLocaleString() : data.current_rpd;
+    rpdUsed.textContent = typeof rpd === 'number' ? rpd.toLocaleString() : String(rpd);
     rpdLimit.textContent = typeof rpdLimitVal === 'number' ? rpdLimitVal.toLocaleString() : rpdLimitVal;
+    
+    // Total tokens used (all time)
+    if (totalTokens) {
+        const total = data.total_tokens ?? 0;
+        totalTokens.textContent = typeof total === 'number' ? total.toLocaleString() : total;
+    }
 }
 
 /**
