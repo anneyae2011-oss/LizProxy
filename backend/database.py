@@ -884,12 +884,15 @@ class PostgreSQLDatabase(Database):
             )
 
     async def get_daily_tokens_used(self, key_id: int, since_utc: str, until_utc: str) -> int:
+        # asyncpg expects datetime, not ISO strings
+        since_dt = since_utc if isinstance(since_utc, datetime) else datetime.fromisoformat(since_utc.replace("Z", "+00:00"))
+        until_dt = until_utc if isinstance(until_utc, datetime) else datetime.fromisoformat(until_utc.replace("Z", "+00:00"))
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT COALESCE(SUM(tokens_used), 0) AS tokens_sum FROM usage_logs
-                WHERE api_key_id = $1 AND request_time >= $2::timestamp AND request_time < $3::timestamp
-            """, key_id, since_utc, until_utc)
+                WHERE api_key_id = $1 AND request_time >= $2 AND request_time < $3
+            """, key_id, since_dt, until_dt)
             return int(row["tokens_sum"]) if row and row["tokens_sum"] is not None else 0
 
     async def get_usage_stats(self, key_id: int) -> UsageStats:
