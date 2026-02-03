@@ -42,6 +42,10 @@
     "MAX_KEYS_PER_IP": {
       "description": "Max API keys allowed per IP (abuse protection, 1-20)",
       "default": "2"
+    },
+    "SESSION_SECRET": {
+      "description": "Secret for signing session cookies (set so login survives restarts; generate with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+      "required": false
     }
   },
   "ports": [

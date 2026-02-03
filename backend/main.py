@@ -31,8 +31,16 @@ from backend.database import Database, ApiKeyRecord, create_database
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "https://lizley.zeabur.app/auth/callback")
-# Use fixed SESSION_SECRET so sessions survive restarts; set in production
-SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
+# Use fixed SESSION_SECRET so sessions survive restarts (avoids logout on refresh/restart)
+if os.getenv("SESSION_SECRET"):
+    SESSION_SECRET = os.getenv("SESSION_SECRET").strip()
+else:
+    _session_secret_file = Path.cwd() / ".session_secret"
+    if _session_secret_file.exists():
+        SESSION_SECRET = _session_secret_file.read_text().strip()
+    else:
+        SESSION_SECRET = secrets.token_hex(32)
+        _session_secret_file.write_text(SESSION_SECRET)
 
 # Initialize OAuth
 oauth = OAuth()
