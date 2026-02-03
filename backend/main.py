@@ -756,8 +756,14 @@ app = FastAPI(
 )
 
 # ==================== Session Middleware (for OAuth) ====================
-
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
+# max_age=1 year so login persists across browser restarts; https_only=False so HTTP (localhost) works
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    max_age=60 * 60 * 24 * 365,
+    https_only=False,
+    same_site="lax",
+)
 
 # ==================== CORS Configuration ====================
 
@@ -802,6 +808,12 @@ if FRONTEND_DIR.exists():
 
 # ==================== Google OAuth Endpoints ====================
 
+def _is_https(request: Request) -> bool:
+    """True if the client connection is HTTPS (handles proxies via X-Forwarded-Proto)."""
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "").strip().lower()
+    return proto == "https"
+
+
 @app.get("/auth/login")
 async def google_login(request: Request):
     """Redirect to Google OAuth login."""
@@ -830,9 +842,9 @@ async def google_callback(request: Request):
         
         if existing_key:
             # User already has a key - redirect with key info
+            request.session["google_id"] = google_id  # session primary (survives proxy/cookie quirks)
             response = RedirectResponse(url=f"/?key_prefix={existing_key.key_prefix}&existing=true&email={google_email}")
-            # Set cookie with Google ID for session persistence (secure only on HTTPS so localhost works)
-            _secure = request.url.scheme == "https"
+            _secure = _is_https(request)
             response.set_cookie(
                 key="google_id",
                 value=google_id,
@@ -866,8 +878,9 @@ async def google_callback(request: Request):
         )
         
         # Redirect with the new key (only shown once!)
+        request.session["google_id"] = google_id  # session primary
         response = RedirectResponse(url=f"/?key={api_key}&key_prefix={key_prefix}&new=true&email={google_email}")
-        _secure = request.url.scheme == "https"
+        _secure = _is_https(request)
         response.set_cookie(
             key="google_id",
             value=google_id,
@@ -888,14 +901,16 @@ async def google_callback(request: Request):
 @app.get("/auth/logout")
 async def logout(request: Request):
     """Clear the session and logout."""
+    request.session.clear()
     response = RedirectResponse(url="/")
-    response.delete_cookie("google_id", path="/", secure=(request.url.scheme == "https"))
+    response.delete_cookie("google_id", path="/", secure=_is_https(request))
     return response
 
 
 @app.get("/api/me")
-async def get_current_user(request: Request, google_id: Optional[str] = Cookie(default=None)):
-    """Get current user's key info based on cookie."""
+async def get_current_user(request: Request):
+    """Get current user's key info from session or cookie."""
+    google_id = request.session.get("google_id") or request.cookies.get("google_id")
     if not google_id:
         raise HTTPException(status_code=401, detail="Not logged in")
     

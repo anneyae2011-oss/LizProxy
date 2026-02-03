@@ -159,9 +159,9 @@ async function fetchUsage() {
         if (response.ok) {
             const data = await response.json();
             updateUsageDisplay(data);
-            usageSection.classList.remove('hidden');
+            if (usageSection) usageSection.classList.remove('hidden');
         } else if (response.status === 404 || response.status === 401) {
-            usageSection.classList.add('hidden');
+            if (usageSection) usageSection.classList.add('hidden');
         }
     } catch (error) {
         console.error('Error fetching usage:', error);
@@ -245,7 +245,7 @@ async function copyKey() {
 function showNoKeyView() {
     noKeyView.classList.remove('hidden');
     hasKeyView.classList.add('hidden');
-    usageSection.classList.add('hidden');
+    if (usageSection) usageSection.classList.add('hidden');
 }
 
 /**
@@ -254,8 +254,7 @@ function showNoKeyView() {
 function showHasKeyView() {
     noKeyView.classList.add('hidden');
     hasKeyView.classList.remove('hidden');
-    
-    // Show usage section (Per minute + Tokens per day) so TPD is always visible when logged in
+    // Usage section (Per minute + Tokens per day) — keep visible so TPD is always on screen
     if (usageSection) usageSection.classList.remove('hidden');
     
     // Update key prefix display
