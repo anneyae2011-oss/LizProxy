@@ -837,7 +837,8 @@ async def google_callback(request: Request):
         existing_key = await db.get_key_by_google_id(google_id)
         
         if existing_key:
-            # User already has a key - redirect with key info (cookie-only auth, no session/env needed)
+            # Persist in both session and cookie so at least one works (browser-dependent)
+            request.session["google_id"] = google_id
             response = RedirectResponse(url=f"/?key_prefix={existing_key.key_prefix}&existing=true&email={google_email}")
             _secure = _is_https(request)
             response.set_cookie(
@@ -872,7 +873,8 @@ async def google_callback(request: Request):
             ip_address=client_ip,
         )
         
-        # Redirect with the new key (only shown once!)
+        # Redirect with the new key (only shown once!) — persist in session + cookie
+        request.session["google_id"] = google_id
         response = RedirectResponse(url=f"/?key={api_key}&key_prefix={key_prefix}&new=true&email={google_email}")
         _secure = _is_https(request)
         response.set_cookie(
@@ -894,7 +896,8 @@ async def google_callback(request: Request):
 
 @app.get("/auth/logout")
 async def logout(request: Request):
-    """Clear cookie and logout."""
+    """Clear session and cookie."""
+    request.session.clear()
     response = RedirectResponse(url="/")
     response.delete_cookie("google_id", path="/", secure=_is_https(request))
     return response
@@ -902,8 +905,8 @@ async def logout(request: Request):
 
 @app.get("/api/me")
 async def get_current_user(request: Request):
-    """Get current user's key info from cookie (no session/env required)."""
-    google_id = request.cookies.get("google_id")
+    """Get current user: session first (more reliable), then cookie."""
+    google_id = request.session.get("google_id") or request.cookies.get("google_id")
     if not google_id:
         raise HTTPException(status_code=401, detail="Not logged in")
     
