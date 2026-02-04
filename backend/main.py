@@ -749,6 +749,7 @@ app = FastAPI(
     description="OpenAI-compatible API proxy with Google OAuth key generation",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,  # avoid 301 for /v1/models vs /v1/models/ (clients expect 200, not redirect)
 )
 
 # ==================== Session Middleware (for OAuth) ====================
