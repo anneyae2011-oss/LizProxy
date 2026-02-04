@@ -1227,13 +1227,7 @@ async def proxy_chat_completions(
     """
     key_record, client_ip = key_data
     
-    # Check rate limits (pass estimated tokens for daily token quota)
-    estimated_tokens = token_count + (await get_max_output_tokens())
-    rate_result = await check_and_update_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
-    if not rate_result.allowed:
-        return create_rate_limit_response(rate_result)
-    
-    # Check max context limit
+    # Input token count (for context check and rate-limit estimate)
     token_count = count_tokens(chat_request.messages)
     max_context = await get_max_context()
     
@@ -1242,6 +1236,12 @@ async def proxy_chat_completions(
             status_code=400,
             detail=f"Request exceeds maximum context limit of {max_context} tokens"
         )
+    
+    # Check rate limits (pass estimated tokens for daily token quota: input + max output)
+    estimated_tokens = token_count + (await get_max_output_tokens())
+    rate_result = await check_and_update_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
+    if not rate_result.allowed:
+        return create_rate_limit_response(rate_result)
     
     # Get target API config
     target_url, target_key = await get_target_api_config()
