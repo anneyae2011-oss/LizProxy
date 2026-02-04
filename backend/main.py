@@ -1133,19 +1133,10 @@ async def get_my_usage(
 
 # ==================== Proxy Endpoints ====================
 
-@app.get("/v1/models")
-async def proxy_models(
-    request: Request,
-    key_data: Tuple[ApiKeyRecord, str] = Depends(validate_api_key),
-):
-    """Proxy the /v1/models endpoint to the target API.
-    
-    Lists available models from the target API.
-    Note: This endpoint does NOT count against rate limits.
-    
-    Returns:
-        The models list from the target API.
-    """
+async def _proxy_models_impl(
+    key_data: Tuple[ApiKeyRecord, str],
+) -> JSONResponse:
+    """Shared implementation for GET /v1/models and /v1/models/ (avoids 301 redirect)."""
     key_record, client_ip = key_data
     
     # NOTE: /v1/models does NOT count against rate limits
@@ -1204,6 +1195,15 @@ async def proxy_models(
             status_code=502,
             detail="Unable to reach upstream API"
         )
+
+
+@app.get("/v1/models", response_class=JSONResponse)
+@app.get("/v1/models/", response_class=JSONResponse)
+async def proxy_models(
+    key_data: Tuple[ApiKeyRecord, str] = Depends(validate_api_key),
+):
+    """Proxy the /v1/models endpoint to the target API. Served at both /v1/models and /v1/models/ to avoid 301 redirect (no Location header)."""
+    return await _proxy_models_impl(key_data)
 
 
 @app.post("/v1/chat/completions")

@@ -7,7 +7,7 @@ Auto-detects which to use based on DATABASE_URL environment variable.
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Union
 
 # SQLite support
@@ -884,9 +884,15 @@ class PostgreSQLDatabase(Database):
             )
 
     async def get_daily_tokens_used(self, key_id: int, since_utc: str, until_utc: str) -> int:
-        # asyncpg expects datetime, not ISO strings
+        # asyncpg expects datetime; PostgreSQL request_time is TIMESTAMP (naive), so pass naive UTC
         since_dt = since_utc if isinstance(since_utc, datetime) else datetime.fromisoformat(since_utc.replace("Z", "+00:00"))
         until_dt = until_utc if isinstance(until_utc, datetime) else datetime.fromisoformat(until_utc.replace("Z", "+00:00"))
+        def _naive_utc(dt):
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        since_dt = _naive_utc(since_dt)
+        until_dt = _naive_utc(until_dt)
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("""
