@@ -1170,9 +1170,13 @@ async def proxy_models(
             ip_address=client_ip,
         )
         
+        try:
+            content = response.json()
+        except Exception:
+            content = {"error": {"message": "Upstream returned invalid JSON"}}
         return JSONResponse(
             status_code=response.status_code,
-            content=response.json(),
+            content=content,
         )
     except httpx.TimeoutException:
         await db.log_usage(
@@ -1576,28 +1580,40 @@ async def admin_list_keys(
     Returns:
         List of all API keys with metadata.
     """
+    def _ts_str(val):
+        """Serialize timestamp to string (handles datetime or str from DB)."""
+        if val is None:
+            return None
+        if hasattr(val, "isoformat"):
+            return val.isoformat()
+        return str(val)
+
     keys = await db.get_all_keys()
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     result = []
     for key in keys:
-        tokens_today = await db.get_daily_tokens_used(
-            key.id, today_start.isoformat(), today_end.isoformat()
-        )
-        result.append(AdminKeyResponse(
-            id=key.id,
-            key_prefix=key.key_prefix,
-            ip_address=key.ip_address,
-            google_email=key.google_email,
-            enabled=key.enabled,
-            bypass_ip_ban=key.bypass_ip_ban,
-            current_rpm=key.current_rpm,
-            current_rpd=key.current_rpd,
-            tokens_used_today=tokens_today,
-            created_at=key.created_at.isoformat(),
-            last_used_at=key.last_used_at.isoformat() if key.last_used_at else None,
-        ))
+        try:
+            tokens_today = await db.get_daily_tokens_used(
+                key.id, today_start.isoformat(), today_end.isoformat()
+            )
+            result.append(AdminKeyResponse(
+                id=key.id,
+                key_prefix=key.key_prefix or "",
+                ip_address=key.ip_address or "",
+                google_email=key.google_email,
+                enabled=key.enabled,
+                bypass_ip_ban=getattr(key, "bypass_ip_ban", False),
+                current_rpm=key.current_rpm,
+                current_rpd=key.current_rpd,
+                tokens_used_today=tokens_today,
+                created_at=_ts_str(key.created_at),
+                last_used_at=_ts_str(key.last_used_at),
+            ))
+        except Exception as e:
+            print(f"[Admin] Skipping key {getattr(key, 'id', '?')}: {e}")
+            continue
     return result
 
 

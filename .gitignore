@@ -1,2 +1,7 @@
 # Session secret (persisted so login survives restarts; do not commit)
 .session_secret
+
+# Environment and secrets (never commit)
+.env
+local.env
+*.env
