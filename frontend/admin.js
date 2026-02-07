@@ -920,6 +920,31 @@ async function resetAllRpd() {
 }
 
 
+async function purgeAllKeys() {
+    if (!confirm('⚠️ WARNING: This will DELETE ALL API keys and usage logs!\n\nEvery user will need to re-register via Discord.\n\nAre you absolutely sure?')) return;
+    if (!confirm('FINAL CONFIRMATION: Purge ALL keys? This cannot be undone.')) return;
+    
+    try {
+        const response = await adminFetch('/admin/purge-all-keys', { method: 'POST' });
+        
+        if (response.ok) {
+            const data = await response.json();
+            logToConsole(`Purged ${data.count} keys and all usage logs`, 'success');
+            showAdminStatus(data.message, 'success');
+            await loadKeys();
+        } else if (response.status === 401) {
+            logout();
+        } else {
+            logToConsole('Failed to purge keys', 'error');
+            showAdminStatus('Failed to purge keys', 'error');
+        }
+    } catch (error) {
+        logToConsole(`Purge error: ${error.message}`, 'error');
+        showAdminStatus('Network error purging keys', 'error');
+    }
+}
+
+
 // ===================================
 // Utility Functions
 // ===================================

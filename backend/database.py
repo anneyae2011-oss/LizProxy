@@ -160,6 +160,16 @@ class Database(ABC):
         pass
     
     @abstractmethod
+    async def delete_disabled_keys_by_ip(self, ip_address: str) -> int:
+        """Delete all disabled API keys for a given IP. Returns count deleted."""
+        pass
+    
+    @abstractmethod
+    async def delete_all_keys(self) -> int:
+        """Delete ALL API keys and their usage logs. Returns count deleted."""
+        pass
+    
+    @abstractmethod
     async def delete_key(self, key_id: int) -> bool:
         pass
     
@@ -405,18 +415,32 @@ class SQLiteDatabase(Database):
 
     async def count_keys_by_ip(self, ip_address: str) -> int:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT COUNT(*) FROM api_keys WHERE ip_address = ?", (ip_address,))
+        cursor = await conn.execute("SELECT COUNT(*) FROM api_keys WHERE ip_address = ? AND enabled = 1", (ip_address,))
         row = await cursor.fetchone()
         return row[0] if row else 0
 
     async def count_discord_keys_by_ip(self, ip_address: str) -> int:
         conn = await self._get_connection()
         cursor = await conn.execute(
-            "SELECT COUNT(*) FROM api_keys WHERE ip_address = ? AND discord_id IS NOT NULL AND discord_id NOT LIKE 'ip_%'",
+            "SELECT COUNT(*) FROM api_keys WHERE ip_address = ? AND discord_id IS NOT NULL AND discord_id NOT LIKE 'ip_%' AND enabled = 1",
             (ip_address,)
         )
         row = await cursor.fetchone()
         return row[0] if row else 0
+
+    async def delete_disabled_keys_by_ip(self, ip_address: str) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute("DELETE FROM api_keys WHERE ip_address = ? AND enabled = 0", (ip_address,))
+        await conn.commit()
+        return cursor.rowcount
+
+    async def delete_all_keys(self) -> int:
+        conn = await self._get_connection()
+        # Delete usage logs first (foreign key), then keys
+        await conn.execute("DELETE FROM usage_logs")
+        cursor = await conn.execute("DELETE FROM api_keys")
+        await conn.commit()
+        return cursor.rowcount
 
     async def delete_key(self, key_id: int) -> bool:
         conn = await self._get_connection()
@@ -825,17 +849,32 @@ class PostgreSQLDatabase(Database):
     async def count_keys_by_ip(self, ip_address: str) -> int:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT COUNT(*) FROM api_keys WHERE ip_address = $1", ip_address)
+            row = await conn.fetchrow("SELECT COUNT(*) FROM api_keys WHERE ip_address = $1 AND enabled = TRUE", ip_address)
             return row[0] if row else 0
 
     async def count_discord_keys_by_ip(self, ip_address: str) -> int:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT COUNT(*) FROM api_keys WHERE ip_address = $1 AND discord_id IS NOT NULL AND discord_id NOT LIKE 'ip_%'",
+                "SELECT COUNT(*) FROM api_keys WHERE ip_address = $1 AND discord_id IS NOT NULL AND discord_id NOT LIKE 'ip_%' AND enabled = TRUE",
                 ip_address
             )
             return row[0] if row else 0
+
+    async def delete_disabled_keys_by_ip(self, ip_address: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM api_keys WHERE ip_address = $1 AND enabled = FALSE", ip_address)
+            # asyncpg returns "DELETE N"
+            return int(result.split()[-1]) if result else 0
+
+    async def delete_all_keys(self) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            # Delete usage logs first (foreign key), then keys
+            await conn.execute("DELETE FROM usage_logs")
+            result = await conn.execute("DELETE FROM api_keys")
+            return int(result.split()[-1]) if result else 0
 
     async def delete_key(self, key_id: int) -> bool:
         pool = await self._get_pool()

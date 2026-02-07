@@ -1776,6 +1776,44 @@ async def admin_delete_key(
     return {"message": "API key deleted successfully"}
 
 
+@app.delete(
+    "/admin/keys/by-ip/{ip_address:path}",
+    responses={401: {"model": ErrorResponse}},
+)
+async def admin_delete_disabled_keys_by_ip(
+    ip_address: str,
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Delete all disabled API keys for a given IP address.
+    
+    This frees up the per-IP key limit for users who lost access to old keys.
+    Only deletes keys that are currently disabled (enabled=False).
+    Requires admin authentication via X-Admin-Password header.
+    
+    Args:
+        ip_address: The IP address whose disabled keys should be deleted.
+    
+    Returns:
+        Success message with count of deleted keys.
+    """
+    import ipaddress as ipaddress_mod
+    
+    # Validate IP address format
+    try:
+        ipaddress_mod.ip_address(ip_address)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid IP address format"
+        )
+    
+    count = await db.delete_disabled_keys_by_ip(ip_address)
+    return {
+        "message": f"Deleted {count} disabled key(s) for IP {ip_address}",
+        "count": count,
+    }
+
+
 @app.put(
     "/admin/keys/{key_id}/toggle",
     responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
@@ -2021,6 +2059,26 @@ async def admin_reset_all_rpm(
     """
     count = await db.reset_all_rpm()
     return {"message": f"Reset RPM counters for {count} API keys", "count": count}
+
+
+@app.post(
+    "/admin/purge-all-keys",
+    responses={401: {"model": ErrorResponse}},
+)
+async def admin_purge_all_keys(
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Delete ALL API keys and their usage logs from the database.
+    
+    ⚠️ DESTRUCTIVE: This removes every key and all usage history.
+    All users will need to re-register via Discord OAuth.
+    Requires admin authentication via X-Admin-Password header.
+    
+    Returns:
+        Success message with count of deleted keys.
+    """
+    count = await db.delete_all_keys()
+    return {"message": f"Purged {count} API keys and all usage logs", "count": count}
 
 
 @app.get(
