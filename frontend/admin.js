@@ -508,8 +508,8 @@ function displayKeys(keys) {
         return `
         <tr data-key-id="${key.id}" class="clickable ${isPending ? 'pending-row' : ''}" onclick="showKeyAnalytics(${key.id})">
             <td class="key-prefix">${escapeHtml(key.key_prefix)}</td>
-            <td class="google-email">
-                ${escapeHtml(key.google_email || key.ip_address || 'Unknown')}
+            <td class="discord-email">
+                ${escapeHtml(key.discord_email || key.ip_address || 'Unknown')}
                 ${key.rp_application ? `<div class="rp-info" title="${escapeAttr(key.rp_application)}">RP: ${escapeHtml(key.rp_application.length > 30 ? key.rp_application.substring(0, 30) + '...' : key.rp_application)}</div>` : ''}
             </td>
             <td>

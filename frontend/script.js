@@ -1,6 +1,6 @@
 /**
  * AI Proxy - Frontend JavaScript
- * Handles Google OAuth login, API key display, and usage stats
+ * Handles Discord OAuth login, API key display, and usage stats
  */
 
 // Constants
@@ -119,7 +119,7 @@ async function checkLoggedIn() {
             const data = await response.json();
             
             currentKeyPrefix = data.key_prefix;
-            userEmail = data.google_email;
+            userEmail = data.discord_email;
             
             // Check if account is pending approval (disabled)
             if (data.enabled === false) {

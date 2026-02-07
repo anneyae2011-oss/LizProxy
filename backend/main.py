@@ -1,6 +1,6 @@
 """Main FastAPI application for the AI Proxy.
 
-Provides API key generation via Google OAuth, rate limiting, and request proxying.
+Provides API key generation via Discord OAuth, rate limiting, and request proxying.
 """
 
 import hashlib
@@ -28,10 +28,10 @@ from backend.database import Database, ApiKeyRecord, create_database
 from backend.session_secret import get_or_create_session_secret
 
 
-# ==================== Google OAuth Configuration ====================
+# ==================== Discord OAuth Configuration ====================
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
 OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "https://lizley.zeabur.app/auth/callback")
 # Persistent session secret from DB (no .env required; survives restarts)
 SESSION_SECRET = get_or_create_session_secret(
@@ -42,11 +42,13 @@ SESSION_SECRET = get_or_create_session_secret(
 # Initialize OAuth
 oauth = OAuth()
 oauth.register(
-    name='google',
-    client_id=GOOGLE_CLIENT_ID,
-    client_secret=GOOGLE_CLIENT_SECRET,
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'},
+    name='discord',
+    client_id=DISCORD_CLIENT_ID,
+    client_secret=DISCORD_CLIENT_SECRET,
+    authorize_url='https://discord.com/api/oauth2/authorize',
+    access_token_url='https://discord.com/api/oauth2/token',
+    api_base_url='https://discord.com/api/',
+    client_kwargs={'scope': 'identify email'},
 )
 
 
@@ -78,7 +80,7 @@ class KeyGenerationResponse(BaseModel):
     key: Optional[str] = None  # Full key only on first generation
     key_prefix: str
     message: str
-    google_email: Optional[str] = None
+    discord_email: Optional[str] = None
 
 
 class AdminKeyResponse(BaseModel):
@@ -86,7 +88,7 @@ class AdminKeyResponse(BaseModel):
     id: int
     key_prefix: str
     ip_address: str
-    google_email: Optional[str]
+    discord_email: Optional[str]
     rp_application: Optional[str]
     enabled: bool
     bypass_ip_ban: bool
@@ -142,7 +144,7 @@ class KeyInfoResponse(BaseModel):
     """Response model for key info endpoint."""
     key_prefix: str
     enabled: bool
-    google_email: Optional[str] = None
+    discord_email: Optional[str] = None
     created_at: str
     rpm_used: int
     rpm_limit: int
@@ -753,7 +755,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Proxy",
-    description="OpenAI-compatible API proxy with Google OAuth key generation",
+    description="OpenAI-compatible API proxy with Discord OAuth key generation",
     version="1.0.0",
     lifespan=lifespan,
     redirect_slashes=False,  # avoid 301 for /v1/models vs /v1/models/ (clients expect 200, not redirect)
@@ -810,7 +812,7 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
-# ==================== Google OAuth Endpoints ====================
+# ==================== Discord OAuth Endpoints ====================
 
 def _is_https(request: Request) -> bool:
     """True if the client connection is HTTPS (handles proxies via X-Forwarded-Proto)."""
@@ -819,39 +821,49 @@ def _is_https(request: Request) -> bool:
 
 
 @app.get("/auth/login")
-async def google_login(request: Request):
-    """Redirect to Google OAuth login."""
+async def discord_login(request: Request):
+    """Redirect to Discord OAuth login."""
     redirect_uri = OAUTH_REDIRECT_URI
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    return await oauth.discord.authorize_redirect(request, redirect_uri)
 
 
 @app.get("/auth/callback")
-async def google_callback(request: Request):
-    """Handle Google OAuth callback and generate/retrieve API key."""
+async def discord_callback(request: Request):
+    """Handle Discord OAuth callback and generate/retrieve API key."""
     try:
-        token = await oauth.google.authorize_access_token(request)
-        user_info = token.get('userinfo')
+        token = await oauth.discord.authorize_access_token(request)
         
-        if not user_info:
-            return RedirectResponse(url="/?error=no_user_info")
+        # Discord requires a separate API call to get user info
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                'https://discord.com/api/users/@me',
+                headers={'Authorization': f'Bearer {token["access_token"]}'},
+            )
+            if resp.status_code != 200:
+                print(f"[Discord API Error] Status: {resp.status_code}, Body: {resp.text[:500]}")
+                return RedirectResponse(url="/?error=no_user_info")
+            user_info = resp.json()
         
-        google_id = user_info.get('sub')  # Google's unique user ID
-        google_email = user_info.get('email', '')
+        discord_id = str(user_info.get('id', ''))  # Discord user ID (snowflake)
+        discord_email = user_info.get('email', '')
+        discord_username = user_info.get('username', '')
+        # Use email if available, otherwise use username for display
+        display_name = discord_email or f"{discord_username}"
         
-        if not google_id:
-            return RedirectResponse(url="/?error=no_google_id")
+        if not discord_id:
+            return RedirectResponse(url="/?error=no_discord_id")
         
         # Check if user already has a key
-        existing_key = await db.get_key_by_google_id(google_id)
+        existing_key = await db.get_key_by_discord_id(discord_id)
         
         if existing_key:
             # Persist in both session and cookie so at least one works (browser-dependent)
-            request.session["google_id"] = google_id
-            response = RedirectResponse(url=f"/?key_prefix={existing_key.key_prefix}&existing=true&email={google_email}")
+            request.session["discord_id"] = discord_id
+            response = RedirectResponse(url=f"/?key_prefix={existing_key.key_prefix}&existing=true&email={quote(display_name)}")
             _secure = _is_https(request)
             response.set_cookie(
-                key="google_id",
-                value=google_id,
+                key="discord_id",
+                value=discord_id,
                 path="/",
                 httponly=True,
                 secure=_secure,
@@ -866,16 +878,18 @@ async def google_callback(request: Request):
         if await db.count_keys_by_ip(client_ip) >= max_keys:
             return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
         
-        # New user — store their Google info in session and redirect to signup page
+        # New user — store their Discord info in session and redirect to signup page
         # where they must answer the RP question before key generation
-        request.session["pending_google_id"] = google_id
-        request.session["pending_google_email"] = google_email
+        request.session["pending_discord_id"] = discord_id
+        request.session["pending_discord_email"] = display_name
         request.session["pending_client_ip"] = client_ip
         
-        return RedirectResponse(url=f"/signup?email={quote(google_email)}")
+        return RedirectResponse(url=f"/signup?email={quote(display_name)}")
         
     except Exception as e:
         print(f"[OAuth Error] {e}")
+        import traceback
+        traceback.print_exc()
         # Don't put exception details in URL (security)
         return RedirectResponse(url="/?error=oauth_failed")
 
@@ -884,19 +898,19 @@ async def google_callback(request: Request):
 async def complete_signup(request: Request, body: CompleteSignupRequest):
     """Complete signup for a new user after they answer the RP question.
     
-    Requires pending Google OAuth data in the session (set by /auth/callback).
+    Requires pending Discord OAuth data in the session (set by /auth/callback).
     Generates the API key and stores it with the RP application answer.
     
     Returns:
         JSON with the new API key details.
     """
     # Retrieve pending signup data from session
-    google_id = request.session.get("pending_google_id")
-    google_email = request.session.get("pending_google_email")
+    discord_id = request.session.get("pending_discord_id")
+    discord_email = request.session.get("pending_discord_email")
     client_ip = request.session.get("pending_client_ip")
     
-    if not google_id:
-        raise HTTPException(status_code=400, detail="No pending signup found. Please sign in with Google first.")
+    if not discord_id:
+        raise HTTPException(status_code=400, detail="No pending signup found. Please sign in with Discord first.")
     
     # Validate RP application is not empty
     rp_text = body.rp_application.strip()
@@ -904,17 +918,17 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
         raise HTTPException(status_code=400, detail="Please tell us what RP you use.")
     
     # Check if user already has a key (race condition protection)
-    existing_key = await db.get_key_by_google_id(google_id)
+    existing_key = await db.get_key_by_discord_id(discord_id)
     if existing_key:
         # Clean up pending session data
-        request.session.pop("pending_google_id", None)
-        request.session.pop("pending_google_email", None)
+        request.session.pop("pending_discord_id", None)
+        request.session.pop("pending_discord_email", None)
         request.session.pop("pending_client_ip", None)
-        request.session["google_id"] = google_id
+        request.session["discord_id"] = discord_id
         return JSONResponse(content={
             "key": existing_key.full_key,
             "key_prefix": existing_key.key_prefix,
-            "email": google_email,
+            "email": discord_email,
             "existing": True,
         })
     
@@ -925,8 +939,8 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
     
     # Store in database with RP application — disabled by default until admin approves
     await db.create_api_key(
-        google_id=google_id,
-        google_email=google_email,
+        discord_id=discord_id,
+        discord_email=discord_email,
         key_hash=key_hash,
         key_prefix=key_prefix,
         full_key=api_key,
@@ -936,23 +950,23 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
     )
     
     # Clean up pending session data and set logged-in session
-    request.session.pop("pending_google_id", None)
-    request.session.pop("pending_google_email", None)
+    request.session.pop("pending_discord_id", None)
+    request.session.pop("pending_discord_email", None)
     request.session.pop("pending_client_ip", None)
-    request.session["google_id"] = google_id
+    request.session["discord_id"] = discord_id
     
     # Set cookie too
     _secure = _is_https(request)
     response = JSONResponse(content={
         "key": api_key,
         "key_prefix": key_prefix,
-        "email": google_email,
+        "email": discord_email,
         "existing": False,
         "pending_approval": True,
     })
     response.set_cookie(
-        key="google_id",
-        value=google_id,
+        key="discord_id",
+        value=discord_id,
         path="/",
         httponly=True,
         secure=_secure,
@@ -967,18 +981,18 @@ async def logout(request: Request):
     """Clear session and cookie."""
     request.session.clear()
     response = RedirectResponse(url="/")
-    response.delete_cookie("google_id", path="/", secure=_is_https(request))
+    response.delete_cookie("discord_id", path="/", secure=_is_https(request))
     return response
 
 
 @app.get("/api/me")
 async def get_current_user(request: Request):
     """Get current user: session first (more reliable), then cookie."""
-    google_id = request.session.get("google_id") or request.cookies.get("google_id")
-    if not google_id:
+    discord_id = request.session.get("discord_id") or request.cookies.get("discord_id")
+    if not discord_id:
         raise HTTPException(status_code=401, detail="Not logged in")
     
-    key_record = await db.get_key_by_google_id(google_id)
+    key_record = await db.get_key_by_discord_id(discord_id)
     if not key_record:
         raise HTTPException(status_code=404, detail="No API key found")
     
@@ -994,7 +1008,7 @@ async def get_current_user(request: Request):
     return {
         "key_prefix": key_record.key_prefix,
         "full_key": key_record.full_key,
-        "google_email": key_record.google_email,
+        "discord_email": key_record.discord_email,
         "enabled": key_record.enabled,
         "current_rpm": key_record.current_rpm,
         "current_rpd": tokens_today,  # tokens used today (daily quota is token-based)
@@ -1070,10 +1084,10 @@ async def generate_key_endpoint(
     key_prefix = get_key_prefix(new_key)
     
     # Store in database with fingerprint AND full key
-    # For IP-based key generation (legacy), use IP as a pseudo google_id
+    # For IP-based key generation (legacy), use IP as a pseudo discord_id
     await db.create_api_key(
-        google_id=f"ip_{client_ip}",  # Use IP as pseudo Google ID for legacy support
-        google_email=None,
+        discord_id=f"ip_{client_ip}",  # Use IP as pseudo Discord ID for legacy support
+        discord_email=None,
         key_hash=key_hash,
         key_prefix=key_prefix,
         full_key=new_key,
@@ -1670,7 +1684,7 @@ async def admin_list_keys(
                 id=key.id,
                 key_prefix=key.key_prefix or "",
                 ip_address=key.ip_address or "",
-                google_email=key.google_email,
+                discord_email=key.discord_email,
                 rp_application=getattr(key, "rp_application", None),
                 enabled=key.enabled,
                 bypass_ip_ban=getattr(key, "bypass_ip_ban", False),

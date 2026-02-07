@@ -28,8 +28,8 @@ class ApiKeyRecord:
     key_hash: str
     key_prefix: str
     full_key: Optional[str]
-    google_id: Optional[str]  # Google user ID (unique identifier)
-    google_email: Optional[str]  # Google email for display
+    discord_id: Optional[str]  # Discord user ID (unique identifier)
+    discord_email: Optional[str]  # Discord email/username for display
     ip_address: str  # Keep for logging purposes
     browser_fingerprint: Optional[str]
     rp_application: Optional[str]  # What RP the user uses (asked during signup)
@@ -75,7 +75,7 @@ class KeyAnalytics:
     key_id: int
     key_prefix: str
     ip_address: str
-    google_email: Optional[str]
+    discord_email: Optional[str]
     total_input_tokens: int
     total_output_tokens: int
     total_tokens: int
@@ -126,11 +126,11 @@ class Database(ABC):
     
     # API Key operations
     @abstractmethod
-    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
+    async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
         pass
     
     @abstractmethod
-    async def get_key_by_google_id(self, google_id: str) -> Optional[ApiKeyRecord]:
+    async def get_key_by_discord_id(self, discord_id: str) -> Optional[ApiKeyRecord]:
         pass
     
     @abstractmethod
@@ -282,8 +282,8 @@ class SQLiteDatabase(Database):
                 key_hash TEXT UNIQUE NOT NULL,
                 key_prefix TEXT NOT NULL,
                 full_key TEXT,
-                google_id TEXT UNIQUE,
-                google_email TEXT,
+                discord_id TEXT UNIQUE,
+                discord_email TEXT,
                 ip_address TEXT NOT NULL DEFAULT 'unknown',
                 browser_fingerprint TEXT,
                 current_rpm INTEGER DEFAULT 0,
@@ -298,8 +298,8 @@ class SQLiteDatabase(Database):
         
         # Migrations
         for col, sql in [
-            ("google_id", "ALTER TABLE api_keys ADD COLUMN google_id TEXT UNIQUE"),
-            ("google_email", "ALTER TABLE api_keys ADD COLUMN google_email TEXT"),
+            ("discord_id", "ALTER TABLE api_keys ADD COLUMN discord_id TEXT UNIQUE"),
+            ("discord_email", "ALTER TABLE api_keys ADD COLUMN discord_email TEXT"),
             ("browser_fingerprint", "ALTER TABLE api_keys ADD COLUMN browser_fingerprint TEXT"),
             ("full_key", "ALTER TABLE api_keys ADD COLUMN full_key TEXT"),
             ("bypass_ip_ban", "ALTER TABLE api_keys ADD COLUMN bypass_ip_ban BOOLEAN DEFAULT 0"),
@@ -312,7 +312,7 @@ class SQLiteDatabase(Database):
         
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_ip ON api_keys(ip_address)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_fingerprint ON api_keys(browser_fingerprint)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_google_id ON api_keys(google_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_discord_id ON api_keys(discord_id)")
         
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS usage_logs (
@@ -359,18 +359,18 @@ class SQLiteDatabase(Database):
         )
         await conn.commit()
 
-    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
+    async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
         conn = await self._get_connection()
         cursor = await conn.execute(
-            "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application, 1 if enabled else 0)
+            "INSERT INTO api_keys (discord_id, discord_email, ip_address, key_hash, key_prefix, full_key, rp_application, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (discord_id, discord_email, ip_address, key_hash, key_prefix, full_key, rp_application, 1 if enabled else 0)
         )
         await conn.commit()
         return cursor.lastrowid
 
-    async def get_key_by_google_id(self, google_id: str) -> Optional[ApiKeyRecord]:
+    async def get_key_by_discord_id(self, discord_id: str) -> Optional[ApiKeyRecord]:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM api_keys WHERE google_id = ?", (google_id,))
+        cursor = await conn.execute("SELECT * FROM api_keys WHERE discord_id = ?", (discord_id,))
         row = await cursor.fetchone()
         return self._row_to_api_key(row) if row else None
 
@@ -541,7 +541,7 @@ class SQLiteDatabase(Database):
 
     async def get_key_analytics(self, key_id: int) -> Optional[KeyAnalytics]:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT key_prefix, ip_address, google_email FROM api_keys WHERE id = ?", (key_id,))
+        cursor = await conn.execute("SELECT key_prefix, ip_address, discord_email FROM api_keys WHERE id = ?", (key_id,))
         key_row = await cursor.fetchone()
         if not key_row:
             return None
@@ -572,7 +572,7 @@ class SQLiteDatabase(Database):
         
         return KeyAnalytics(
             key_id=key_id, key_prefix=key_row["key_prefix"], ip_address=key_row["ip_address"],
-            google_email=key_row["google_email"] if "google_email" in key_row.keys() else None,
+            discord_email=key_row["discord_email"] if "discord_email" in key_row.keys() else None,
             total_input_tokens=stats_row["total_input"] or 0, total_output_tokens=stats_row["total_output"] or 0,
             total_tokens=stats_row["total_tokens"] or 0, total_requests=stats_row["total_requests"] or 0,
             successful_requests=stats_row["successful_requests"] or 0,
@@ -621,8 +621,8 @@ class SQLiteDatabase(Database):
         return ApiKeyRecord(
             id=row["id"], key_hash=row["key_hash"], key_prefix=row["key_prefix"],
             full_key=row["full_key"] if "full_key" in row.keys() else None,
-            google_id=row["google_id"] if "google_id" in row.keys() else None,
-            google_email=row["google_email"] if "google_email" in row.keys() else None,
+            discord_id=row["discord_id"] if "discord_id" in row.keys() else None,
+            discord_email=row["discord_email"] if "discord_email" in row.keys() else None,
             ip_address=row["ip_address"],
             browser_fingerprint=row["browser_fingerprint"] if "browser_fingerprint" in row.keys() else None,
             rp_application=row["rp_application"] if "rp_application" in row.keys() else None,
@@ -680,8 +680,8 @@ class PostgreSQLDatabase(Database):
                     key_hash TEXT UNIQUE NOT NULL,
                     key_prefix TEXT NOT NULL,
                     full_key TEXT,
-                    google_id TEXT UNIQUE,
-                    google_email TEXT,
+                    discord_id TEXT UNIQUE,
+                    discord_email TEXT,
                     ip_address TEXT NOT NULL DEFAULT 'unknown',
                     browser_fingerprint TEXT,
                     current_rpm INTEGER DEFAULT 0,
@@ -704,10 +704,10 @@ class PostgreSQLDatabase(Database):
             # Add missing columns
             if 'full_key' not in existing_col_names:
                 await conn.execute("ALTER TABLE api_keys ADD COLUMN full_key TEXT")
-            if 'google_id' not in existing_col_names:
-                await conn.execute("ALTER TABLE api_keys ADD COLUMN google_id TEXT")
-            if 'google_email' not in existing_col_names:
-                await conn.execute("ALTER TABLE api_keys ADD COLUMN google_email TEXT")
+            if 'discord_id' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN discord_id TEXT")
+            if 'discord_email' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN discord_email TEXT")
             if 'bypass_ip_ban' not in existing_col_names:
                 await conn.execute("ALTER TABLE api_keys ADD COLUMN bypass_ip_ban BOOLEAN DEFAULT FALSE")
             if 'rp_application' not in existing_col_names:
@@ -717,9 +717,9 @@ class PostgreSQLDatabase(Database):
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_ip ON api_keys(ip_address)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_fingerprint ON api_keys(browser_fingerprint)")
             
-            # Create google_id index only if column exists now
+            # Create discord_id index only if column exists now
             try:
-                await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_google_id ON api_keys(google_id)")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_discord_id ON api_keys(discord_id)")
             except Exception:
                 pass  # Index might already exist or column issue
             
@@ -769,19 +769,19 @@ class PostgreSQLDatabase(Database):
                 "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
             )
 
-    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
+    async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
-                google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application, enabled
+                "INSERT INTO api_keys (discord_id, discord_email, ip_address, key_hash, key_prefix, full_key, rp_application, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+                discord_id, discord_email, ip_address, key_hash, key_prefix, full_key, rp_application, enabled
             )
             return row["id"]
 
-    async def get_key_by_google_id(self, google_id: str) -> Optional[ApiKeyRecord]:
+    async def get_key_by_discord_id(self, discord_id: str) -> Optional[ApiKeyRecord]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM api_keys WHERE google_id = $1", google_id)
+            row = await conn.fetchrow("SELECT * FROM api_keys WHERE discord_id = $1", discord_id)
             return self._row_to_api_key(row) if row else None
 
     async def get_key_by_ip(self, ip_address: str) -> Optional[ApiKeyRecord]:
@@ -951,7 +951,7 @@ class PostgreSQLDatabase(Database):
     async def get_key_analytics(self, key_id: int) -> Optional[KeyAnalytics]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            key_row = await conn.fetchrow("SELECT key_prefix, ip_address, google_email FROM api_keys WHERE id = $1", key_id)
+            key_row = await conn.fetchrow("SELECT key_prefix, ip_address, discord_email FROM api_keys WHERE id = $1", key_id)
             if not key_row:
                 return None
             
@@ -978,7 +978,7 @@ class PostgreSQLDatabase(Database):
             
             return KeyAnalytics(
                 key_id=key_id, key_prefix=key_row["key_prefix"], ip_address=key_row["ip_address"],
-                google_email=key_row.get("google_email"),
+                discord_email=self._safe_get(key_row, "discord_email"),
                 total_input_tokens=stats_row["total_input"] or 0, total_output_tokens=stats_row["total_output"] or 0,
                 total_tokens=stats_row["total_tokens"] or 0, total_requests=stats_row["total_requests"] or 0,
                 successful_requests=stats_row["successful_requests"] or 0,
@@ -1046,8 +1046,8 @@ class PostgreSQLDatabase(Database):
         return ApiKeyRecord(
             id=row["id"], key_hash=row["key_hash"], key_prefix=row["key_prefix"],
             full_key=self._safe_get(row, "full_key"),
-            google_id=self._safe_get(row, "google_id"),
-            google_email=self._safe_get(row, "google_email"),
+            discord_id=self._safe_get(row, "discord_id"),
+            discord_email=self._safe_get(row, "discord_email"),
             ip_address=row["ip_address"],
             browser_fingerprint=self._safe_get(row, "browser_fingerprint"),
             rp_application=self._safe_get(row, "rp_application"),
