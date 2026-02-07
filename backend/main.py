@@ -923,7 +923,7 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
     key_hash = hash_api_key(api_key)
     key_prefix = get_key_prefix(api_key)
     
-    # Store in database with RP application
+    # Store in database with RP application — disabled by default until admin approves
     await db.create_api_key(
         google_id=google_id,
         google_email=google_email,
@@ -932,6 +932,7 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
         full_key=api_key,
         ip_address=client_ip or "unknown",
         rp_application=rp_text,
+        enabled=False,  # Disabled until admin approves
     )
     
     # Clean up pending session data and set logged-in session
@@ -947,6 +948,7 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
         "key_prefix": key_prefix,
         "email": google_email,
         "existing": False,
+        "pending_approval": True,
     })
     response.set_cookie(
         key="google_id",

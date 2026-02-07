@@ -158,9 +158,17 @@
                 if (data.existing) {
                     // Existing user — redirect home
                     window.location.href = `/?key_prefix=${data.key_prefix}&existing=true&email=${encodeURIComponent(data.email || '')}`;
+                } else if (data.pending_approval) {
+                    // New user — account pending admin approval
+                    // Store key locally so it's available once approved
+                    localStorage.setItem('ai_proxy_full_key', data.key);
+                    localStorage.setItem('ai_proxy_key_prefix', data.key_prefix);
+                    
+                    // Show pending approval message
+                    document.getElementById('signup-form').style.display = 'none';
+                    showPendingApproval(data.email);
                 } else {
-                    // New user — redirect with key
-                    // Store key in localStorage before redirect
+                    // New user — redirect with key (auto-approved)
                     localStorage.setItem('ai_proxy_full_key', data.key);
                     localStorage.setItem('ai_proxy_key_prefix', data.key_prefix);
                     window.location.href = `/?key=${encodeURIComponent(data.key)}&key_prefix=${data.key_prefix}&new=true&email=${encodeURIComponent(data.email || '')}`;
@@ -171,6 +179,40 @@
                 submitBtn.disabled = false;
                 submitBtn.textContent = '✧ Complete Signup ✧';
             }
+        }
+        
+        function showPendingApproval(email) {
+            // Replace the form section with a pending approval message
+            const card = document.querySelector('.card');
+            const sections = card.querySelectorAll('.section');
+            sections.forEach(s => s.style.display = 'none');
+            
+            // Update header
+            const header = card.querySelector('.card-header');
+            header.querySelector('h1').textContent = 'Application Submitted!';
+            header.querySelector('.subtitle').textContent = 'waiting for admin approval';
+            
+            // Create pending message
+            const pendingDiv = document.createElement('section');
+            pendingDiv.className = 'section';
+            pendingDiv.innerHTML = `
+                <div class="pending-approval-message">
+                    <div class="pending-icon">⏳</div>
+                    <h2>Your account is pending approval</h2>
+                    <p class="info-text">
+                        Thank you for signing up${email ? ` as <strong>${email}</strong>` : ''}!
+                        Your application has been submitted and your account will be reviewed by an admin.
+                    </p>
+                    <p class="info-text">
+                        Once approved, your API key will be activated and you'll be able to use the proxy.
+                        You can check back later by signing in again.
+                    </p>
+                    <a href="/" class="btn btn-ghost" style="margin-top: 1rem; display: inline-block; text-decoration: none;">
+                        ✧ Return Home ✧
+                    </a>
+                </div>
+            `;
+            header.after(pendingDiv);
         }
         
         function showStatus(message, type = 'info') {

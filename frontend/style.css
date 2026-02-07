@@ -1024,6 +1024,20 @@ h3 {
     margin-top: var(--space-md);
 }
 
+/* ===== Pending Approval ===== */
+.pending-approval-message {
+    text-align: center;
+    padding: var(--space-md);
+}
+
+.pending-approval-message h2 {
+    margin-bottom: var(--space-sm);
+}
+
+.pending-approval-message .info-text {
+    margin-bottom: var(--space-xs);
+}
+
 /* ===== Footer ===== */
 .footer {
     text-align: center;

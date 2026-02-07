@@ -494,24 +494,41 @@ function displayKeys(keys) {
     }
     
     noKeysMessage.classList.add('hidden');
-    keysTbody.innerHTML = keys.map(key => `
-        <tr data-key-id="${key.id}" class="clickable" onclick="showKeyAnalytics(${key.id})">
+    // Sort: pending approval (disabled + has RP) first, then enabled, then disabled
+    const sortedKeys = [...keys].sort((a, b) => {
+        const aPending = !a.enabled && a.rp_application;
+        const bPending = !b.enabled && b.rp_application;
+        if (aPending && !bPending) return -1;
+        if (!aPending && bPending) return 1;
+        return 0;
+    });
+    
+    keysTbody.innerHTML = sortedKeys.map(key => {
+        const isPending = !key.enabled && key.rp_application;
+        return `
+        <tr data-key-id="${key.id}" class="clickable ${isPending ? 'pending-row' : ''}" onclick="showKeyAnalytics(${key.id})">
             <td class="key-prefix">${escapeHtml(key.key_prefix)}</td>
             <td class="google-email">
                 ${escapeHtml(key.google_email || key.ip_address || 'Unknown')}
                 ${key.rp_application ? `<div class="rp-info" title="${escapeAttr(key.rp_application)}">RP: ${escapeHtml(key.rp_application.length > 30 ? key.rp_application.substring(0, 30) + '...' : key.rp_application)}</div>` : ''}
             </td>
             <td>
+                ${isPending ? `
+                <span class="status-badge pending">
+                    ⏳ Pending
+                </span>
+                ` : `
                 <span class="status-badge ${key.enabled ? 'enabled' : 'disabled'}">
                     ${key.enabled ? 'Enabled' : 'Disabled'}
                 </span>
+                `}
             </td>
             <td>
                 <span class="status-badge ${key.bypass_ip_ban ? 'enabled' : 'disabled'}">
                     ${key.bypass_ip_ban ? 'Bypass' : 'No'}
                 </span>
                 <div class="action-buttons" onclick="event.stopPropagation()" style="margin-top: 4px;">
-                    <button onclick="setBypassIp(${key.id}, ${!key.bypass_ip_ban})" 
+                    <button onclick="setBypassIp(${key.id}, ${!key.bypass_ip_ban})"
                             class="btn btn-ghost btn-sm" title="${key.bypass_ip_ban ? 'Disable IP bypass' : 'Allow this key from banned IPs'}">
                         ${key.bypass_ip_ban ? 'Disable bypass' : 'Enable bypass'}
                     </button>
@@ -521,17 +538,24 @@ function displayKeys(keys) {
             <td title="Tokens today / 150K limit">${key.tokens_used_today != null ? key.tokens_used_today.toLocaleString() : key.current_rpd}/${(150000).toLocaleString()}</td>
             <td>
                 <div class="action-buttons" onclick="event.stopPropagation()">
-                    <button onclick="toggleKey(${key.id}, ${key.enabled})" 
+                    ${isPending ? `
+                    <button onclick="toggleKey(${key.id}, ${key.enabled})"
+                            class="btn btn-approve btn-sm">
+                        ✓ Approve
+                    </button>
+                    ` : `
+                    <button onclick="toggleKey(${key.id}, ${key.enabled})"
                             class="btn ${key.enabled ? 'btn-warning' : 'btn-ghost'} btn-sm">
                         ${key.enabled ? 'Disable' : 'Enable'}
                     </button>
+                    `}
                     <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">
-                        Delete
+                        ${isPending ? 'Reject' : 'Delete'}
                     </button>
                 </div>
             </td>
         </tr>
-    `).join('');
+    `}).join('');
 }
 
 async function setBypassIp(keyId, bypass) {
