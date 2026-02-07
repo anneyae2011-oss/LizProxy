@@ -1034,19 +1034,27 @@ class PostgreSQLDatabase(Database):
                 ON CONFLICT (id) DO UPDATE SET target_api_url = $1, target_api_key = $2, max_context = $3, max_output_tokens = $4, updated_at = CURRENT_TIMESTAMP
             """, target_url, target_key, max_context, max_output_tokens)
 
+    @staticmethod
+    def _safe_get(row, key, default=None):
+        """Safely get a value from an asyncpg Record (which lacks .get())."""
+        try:
+            return row[key]
+        except (KeyError, Exception):
+            return default
+
     def _row_to_api_key(self, row) -> ApiKeyRecord:
         return ApiKeyRecord(
             id=row["id"], key_hash=row["key_hash"], key_prefix=row["key_prefix"],
-            full_key=row.get("full_key"),
-            google_id=row.get("google_id"),
-            google_email=row.get("google_email"),
+            full_key=self._safe_get(row, "full_key"),
+            google_id=self._safe_get(row, "google_id"),
+            google_email=self._safe_get(row, "google_email"),
             ip_address=row["ip_address"],
-            browser_fingerprint=row.get("browser_fingerprint"),
-            rp_application=row.get("rp_application"),
+            browser_fingerprint=self._safe_get(row, "browser_fingerprint"),
+            rp_application=self._safe_get(row, "rp_application"),
             current_rpm=row["current_rpm"], current_rpd=row["current_rpd"],
             last_rpm_reset=row["last_rpm_reset"], last_rpd_reset=row["last_rpd_reset"],
             enabled=row["enabled"],
-            bypass_ip_ban=row.get("bypass_ip_ban", False),
+            bypass_ip_ban=self._safe_get(row, "bypass_ip_ban", False),
             created_at=row["created_at"],
             last_used_at=row["last_used_at"],
         )
