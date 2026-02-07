@@ -918,7 +918,7 @@ async def complete_signup(request: Request, body: CompleteSignupRequest):
     # Validate RP application is not empty
     rp_text = body.rp_application.strip()
     if not rp_text:
-        raise HTTPException(status_code=400, detail="Please tell us what RP you use.")
+        raise HTTPException(status_code=400, detail="Please tell us about your RP and your most frequent style.")
     
     # Check if user already has a key (race condition protection)
     existing_key = await db.get_key_by_discord_id(discord_id)

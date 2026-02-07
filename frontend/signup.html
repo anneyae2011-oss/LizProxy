@@ -65,16 +65,16 @@
 
             <!-- RP Question Form -->
             <section class="section">
-                <h2>What RP do you use?</h2>
-                <p class="info-text">Please tell us what roleplay platform or client you'll be using with this proxy (e.g., SillyTavern, RisuAI, Agnai, etc.)</p>
+                <h2>Tell us about your RP</h2>
+                <p class="info-text">What is your RP about and what is your most frequent style? (e.g., fantasy adventure, slice-of-life, action, romance, etc.)</p>
                 
                 <form id="signup-form" onsubmit="submitSignup(event)">
                     <div class="form-group">
-                        <textarea 
-                            id="rp-application" 
-                            class="form-textarea" 
-                            placeholder="Tell us what RP you use..."
-                            rows="3"
+                        <textarea
+                            id="rp-application"
+                            class="form-textarea"
+                            placeholder="Describe what your RP is about and your most frequent style..."
+                            rows="4"
                             required
                             maxlength="500"
                         ></textarea>
@@ -128,7 +128,7 @@
             
             const rpText = rpTextarea.value.trim();
             if (!rpText) {
-                showStatus('Please tell us what RP you use.', 'error');
+                showStatus('Please tell us about your RP and your most frequent style.', 'error');
                 return;
             }
             
