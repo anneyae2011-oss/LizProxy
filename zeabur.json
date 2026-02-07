@@ -46,6 +46,18 @@
     "SESSION_SECRET": {
       "description": "Secret for signing session cookies (set so login survives restarts; generate with: python -c \"import secrets; print(secrets.token_hex(32))\"",
       "required": false
+    },
+    "DISCORD_CLIENT_ID": {
+      "description": "Discord OAuth2 Client ID (from https://discord.com/developers/applications)",
+      "required": true
+    },
+    "DISCORD_CLIENT_SECRET": {
+      "description": "Discord OAuth2 Client Secret",
+      "required": true
+    },
+    "OAUTH_REDIRECT_URI": {
+      "description": "Discord OAuth2 redirect URI (must match Discord Developer Portal)",
+      "default": "https://lizley.zeabur.app/auth/callback"
     }
   },
   "ports": [

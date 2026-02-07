@@ -155,6 +155,11 @@ class Database(ABC):
         pass
     
     @abstractmethod
+    async def count_discord_keys_by_ip(self, ip_address: str) -> int:
+        """Return the number of Discord-authenticated API keys for this IP (excludes legacy ip_ keys)."""
+        pass
+    
+    @abstractmethod
     async def delete_key(self, key_id: int) -> bool:
         pass
     
@@ -401,6 +406,15 @@ class SQLiteDatabase(Database):
     async def count_keys_by_ip(self, ip_address: str) -> int:
         conn = await self._get_connection()
         cursor = await conn.execute("SELECT COUNT(*) FROM api_keys WHERE ip_address = ?", (ip_address,))
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def count_discord_keys_by_ip(self, ip_address: str) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM api_keys WHERE ip_address = ? AND discord_id IS NOT NULL AND discord_id NOT LIKE 'ip_%'",
+            (ip_address,)
+        )
         row = await cursor.fetchone()
         return row[0] if row else 0
 
@@ -812,6 +826,15 @@ class PostgreSQLDatabase(Database):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT COUNT(*) FROM api_keys WHERE ip_address = $1", ip_address)
+            return row[0] if row else 0
+
+    async def count_discord_keys_by_ip(self, ip_address: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT COUNT(*) FROM api_keys WHERE ip_address = $1 AND discord_id IS NOT NULL AND discord_id NOT LIKE 'ip_%'",
+                ip_address
+            )
             return row[0] if row else 0
 
     async def delete_key(self, key_id: int) -> bool:

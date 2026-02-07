@@ -872,10 +872,13 @@ async def discord_callback(request: Request):
             )
             return response
         
-        # Abuse protection: limit keys per IP
+        # Abuse protection: limit Discord-authenticated keys per IP
+        # Only count keys that were created via Discord OAuth (have a real discord_id),
+        # not legacy IP-based keys (discord_id starts with "ip_")
         client_ip = get_client_ip(request)
         max_keys = (settings.max_keys_per_ip if settings else 2)
-        if await db.count_keys_by_ip(client_ip) >= max_keys:
+        discord_key_count = await db.count_discord_keys_by_ip(client_ip)
+        if discord_key_count >= max_keys:
             return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
         
         # New user — store their Discord info in session and redirect to signup page
