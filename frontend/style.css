@@ -965,6 +965,65 @@ h3 {
     border-color: rgba(120, 80, 80, 0.5);
 }
 
+/* ===== Signup Form ===== */
+.form-group {
+    margin-bottom: var(--space-md);
+}
+
+.form-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: var(--space-sm) var(--space-md);
+    font-family: var(--font-clean);
+    font-size: 0.9rem;
+    color: var(--ink);
+    background: var(--glass);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1.5px solid var(--border-medium);
+    border-radius: var(--radius-soft);
+    resize: vertical;
+    outline: none;
+    transition: all var(--duration) var(--ease-silk);
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+    box-shadow:
+        0 2px 15px rgba(150, 130, 140, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.form-textarea::placeholder {
+    color: var(--ink-faded);
+    font-style: italic;
+}
+
+.form-textarea:focus {
+    border-color: var(--border-strong);
+    box-shadow:
+        0 0 30px var(--glow-pearl),
+        0 0 60px var(--glow-bloom),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="dark"] .form-textarea {
+    background: rgba(30, 25, 40, 0.6);
+}
+
+.char-count {
+    text-align: right;
+    font-family: var(--font-clean);
+    font-size: 0.7rem;
+    color: var(--ink-faded);
+    margin-top: var(--space-xs);
+    letter-spacing: 0.05em;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--space-md);
+}
+
 /* ===== Footer ===== */
 .footer {
     text-align: center;

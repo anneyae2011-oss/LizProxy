@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Liz's Proxy - Complete your signup">
+    <title>Sign Up - Liz's Proxy</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Quicksand:wght@300;400;500&display=swap" rel="stylesheet">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/style.css?v=20251227a">
+</head>
+<body>
+    <!-- Background with Vignette -->
+    <div class="background-image"></div>
+    <div class="vignette-overlay"></div>
+    
+    <!-- Floating Particles -->
+    <div class="particles-container">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+    
+    <!-- Theme Toggle -->
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
+        <span class="icon-sun">☀️</span>
+        <span class="icon-moon">🌙</span>
+    </button>
+    
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-brand-container">
+            <a href="/" class="nav-brand">✧ Liz's Proxy ✧</a>
+            <span class="credits">credits to Maple AI</span>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="nav-link">Home</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card">
+            <!-- Header -->
+            <header class="card-header">
+                <h1>Almost There!</h1>
+                <p class="subtitle">one more step to get your api key</p>
+            </header>
+
+            <!-- Email Display -->
+            <section class="section">
+                <div id="user-email" class="user-email" style="text-align: center; width: 100%; display: block;"></div>
+            </section>
+
+            <!-- RP Question Form -->
+            <section class="section">
+                <h2>What RP do you use?</h2>
+                <p class="info-text">Please tell us what roleplay platform or client you'll be using with this proxy (e.g., SillyTavern, RisuAI, Agnai, etc.)</p>
+                
+                <form id="signup-form" onsubmit="submitSignup(event)">
+                    <div class="form-group">
+                        <textarea 
+                            id="rp-application" 
+                            class="form-textarea" 
+                            placeholder="Tell us what RP you use..."
+                            rows="3"
+                            required
+                            maxlength="500"
+                        ></textarea>
+                        <div class="char-count">
+                            <span id="char-count">0</span> / 500
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" id="submit-btn" class="btn btn-primary">
+                            ✧ Complete Signup ✧
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Status Messages -->
+            <div id="status-message" class="status-message hidden"></div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>✧ powered by liz's proxy ✧</p>
+        </footer>
+    </main>
+
+    <script>
+        // Get email from URL params
+        const urlParams = new URLSearchParams(window.location.search);
+        const email = urlParams.get('email') || '';
+        
+        const userEmailEl = document.getElementById('user-email');
+        const rpTextarea = document.getElementById('rp-application');
+        const charCount = document.getElementById('char-count');
+        const statusMessage = document.getElementById('status-message');
+        const submitBtn = document.getElementById('submit-btn');
+        
+        // Display email
+        if (email && userEmailEl) {
+            userEmailEl.textContent = `Signing up as: ${decodeURIComponent(email)}`;
+        }
+        
+        // Character counter
+        rpTextarea.addEventListener('input', () => {
+            charCount.textContent = rpTextarea.value.length;
+        });
+        
+        // Submit signup
+        async function submitSignup(event) {
+            event.preventDefault();
+            
+            const rpText = rpTextarea.value.trim();
+            if (!rpText) {
+                showStatus('Please tell us what RP you use.', 'error');
+                return;
+            }
+            
+            // Disable button while submitting
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
+            
+            try {
+                const response = await fetch('/auth/complete-signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ rp_application: rpText }),
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const message = errorData.detail || 'Signup failed. Please try again.';
+                    showStatus(message, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '✧ Complete Signup ✧';
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (data.existing) {
+                    // Existing user — redirect home
+                    window.location.href = `/?key_prefix=${data.key_prefix}&existing=true&email=${encodeURIComponent(data.email || '')}`;
+                } else {
+                    // New user — redirect with key
+                    // Store key in localStorage before redirect
+                    localStorage.setItem('ai_proxy_full_key', data.key);
+                    localStorage.setItem('ai_proxy_key_prefix', data.key_prefix);
+                    window.location.href = `/?key=${encodeURIComponent(data.key)}&key_prefix=${data.key_prefix}&new=true&email=${encodeURIComponent(data.email || '')}`;
+                }
+            } catch (error) {
+                console.error('Signup error:', error);
+                showStatus('Network error. Please try again.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = '✧ Complete Signup ✧';
+            }
+        }
+        
+        function showStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message ${type}`;
+            statusMessage.classList.remove('hidden');
+            
+            setTimeout(() => {
+                statusMessage.classList.add('hidden');
+            }, 5000);
+        }
+        
+        // Theme toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('ai_proxy_theme', newTheme);
+        }
+        
+        // Load saved theme
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('ai_proxy_theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+        }
+        
+        loadTheme();
+    </script>
+</body>
+</html>

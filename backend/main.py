@@ -8,6 +8,7 @@ import hmac
 import os
 import secrets
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Tuple, AsyncGenerator
@@ -86,6 +87,7 @@ class AdminKeyResponse(BaseModel):
     key_prefix: str
     ip_address: str
     google_email: Optional[str]
+    rp_application: Optional[str]
     enabled: bool
     bypass_ip_ban: bool
     current_rpm: int
@@ -110,6 +112,11 @@ class ConfigUpdateRequest(BaseModel):
     target_api_key: Optional[str] = None
     max_context: Optional[int] = None
     max_output_tokens: Optional[int] = None
+
+
+class CompleteSignupRequest(BaseModel):
+    """Request model for completing signup with RP application."""
+    rp_application: str
 
 
 class BypassIpRequest(BaseModel):
@@ -859,40 +866,98 @@ async def google_callback(request: Request):
         if await db.count_keys_by_ip(client_ip) >= max_keys:
             return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
         
-        # Generate new API key for this Google account
-        api_key = generate_api_key()
-        key_hash = hash_api_key(api_key)
-        key_prefix = get_key_prefix(api_key)
+        # New user — store their Google info in session and redirect to signup page
+        # where they must answer the RP question before key generation
+        request.session["pending_google_id"] = google_id
+        request.session["pending_google_email"] = google_email
+        request.session["pending_client_ip"] = client_ip
         
-        # Store in database
-        await db.create_api_key(
-            google_id=google_id,
-            google_email=google_email,
-            key_hash=key_hash,
-            key_prefix=key_prefix,
-            full_key=api_key,
-            ip_address=client_ip,
-        )
-        
-        # Redirect with the new key (only shown once!) — persist in session + cookie
-        request.session["google_id"] = google_id
-        response = RedirectResponse(url=f"/?key={api_key}&key_prefix={key_prefix}&new=true&email={google_email}")
-        _secure = _is_https(request)
-        response.set_cookie(
-            key="google_id",
-            value=google_id,
-            path="/",
-            httponly=True,
-            secure=_secure,
-            samesite="lax",
-            max_age=60*60*24*365,  # 1 year
-        )
-        return response
+        return RedirectResponse(url=f"/signup?email={quote(google_email)}")
         
     except Exception as e:
         print(f"[OAuth Error] {e}")
         # Don't put exception details in URL (security)
         return RedirectResponse(url="/?error=oauth_failed")
+
+
+@app.post("/auth/complete-signup")
+async def complete_signup(request: Request, body: CompleteSignupRequest):
+    """Complete signup for a new user after they answer the RP question.
+    
+    Requires pending Google OAuth data in the session (set by /auth/callback).
+    Generates the API key and stores it with the RP application answer.
+    
+    Returns:
+        JSON with the new API key details.
+    """
+    # Retrieve pending signup data from session
+    google_id = request.session.get("pending_google_id")
+    google_email = request.session.get("pending_google_email")
+    client_ip = request.session.get("pending_client_ip")
+    
+    if not google_id:
+        raise HTTPException(status_code=400, detail="No pending signup found. Please sign in with Google first.")
+    
+    # Validate RP application is not empty
+    rp_text = body.rp_application.strip()
+    if not rp_text:
+        raise HTTPException(status_code=400, detail="Please tell us what RP you use.")
+    
+    # Check if user already has a key (race condition protection)
+    existing_key = await db.get_key_by_google_id(google_id)
+    if existing_key:
+        # Clean up pending session data
+        request.session.pop("pending_google_id", None)
+        request.session.pop("pending_google_email", None)
+        request.session.pop("pending_client_ip", None)
+        request.session["google_id"] = google_id
+        return JSONResponse(content={
+            "key": existing_key.full_key,
+            "key_prefix": existing_key.key_prefix,
+            "email": google_email,
+            "existing": True,
+        })
+    
+    # Generate new API key
+    api_key = generate_api_key()
+    key_hash = hash_api_key(api_key)
+    key_prefix = get_key_prefix(api_key)
+    
+    # Store in database with RP application
+    await db.create_api_key(
+        google_id=google_id,
+        google_email=google_email,
+        key_hash=key_hash,
+        key_prefix=key_prefix,
+        full_key=api_key,
+        ip_address=client_ip or "unknown",
+        rp_application=rp_text,
+    )
+    
+    # Clean up pending session data and set logged-in session
+    request.session.pop("pending_google_id", None)
+    request.session.pop("pending_google_email", None)
+    request.session.pop("pending_client_ip", None)
+    request.session["google_id"] = google_id
+    
+    # Set cookie too
+    _secure = _is_https(request)
+    response = JSONResponse(content={
+        "key": api_key,
+        "key_prefix": key_prefix,
+        "email": google_email,
+        "existing": False,
+    })
+    response.set_cookie(
+        key="google_id",
+        value=google_id,
+        path="/",
+        httponly=True,
+        secure=_secure,
+        samesite="lax",
+        max_age=60*60*24*365,  # 1 year
+    )
+    return response
 
 
 @app.get("/auth/logout")
@@ -1604,6 +1669,7 @@ async def admin_list_keys(
                 key_prefix=key.key_prefix or "",
                 ip_address=key.ip_address or "",
                 google_email=key.google_email,
+                rp_application=getattr(key, "rp_application", None),
                 enabled=key.enabled,
                 bypass_ip_ban=getattr(key, "bypass_ip_ban", False),
                 current_rpm=key.current_rpm,
@@ -2089,6 +2155,19 @@ async def serve_index():
         status_code=404, 
         detail=f"Frontend not found. Checked: {FRONTEND_DIR}, exists={FRONTEND_DIR.exists()}, cwd={Path.cwd()}"
     )
+
+
+@app.get("/signup", include_in_schema=False)
+async def serve_signup():
+    """Serve the signup page where new users answer the RP question.
+    
+    Returns:
+        The signup.html file for the signup form.
+    """
+    signup_path = FRONTEND_DIR / "signup.html"
+    if signup_path.exists():
+        return FileResponse(str(signup_path), media_type="text/html")
+    raise HTTPException(status_code=404, detail="Signup page not found")
 
 
 @app.get("/admin", include_in_schema=False)

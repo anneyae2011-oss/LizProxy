@@ -32,6 +32,7 @@ class ApiKeyRecord:
     google_email: Optional[str]  # Google email for display
     ip_address: str  # Keep for logging purposes
     browser_fingerprint: Optional[str]
+    rp_application: Optional[str]  # What RP the user uses (asked during signup)
     current_rpm: int
     current_rpd: int
     last_rpm_reset: datetime
@@ -125,7 +126,7 @@ class Database(ABC):
     
     # API Key operations
     @abstractmethod
-    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
+    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None) -> int:
         pass
     
     @abstractmethod
@@ -302,6 +303,7 @@ class SQLiteDatabase(Database):
             ("browser_fingerprint", "ALTER TABLE api_keys ADD COLUMN browser_fingerprint TEXT"),
             ("full_key", "ALTER TABLE api_keys ADD COLUMN full_key TEXT"),
             ("bypass_ip_ban", "ALTER TABLE api_keys ADD COLUMN bypass_ip_ban BOOLEAN DEFAULT 0"),
+            ("rp_application", "ALTER TABLE api_keys ADD COLUMN rp_application TEXT"),
         ]:
             try:
                 await conn.execute(f"SELECT {col} FROM api_keys LIMIT 1")
@@ -357,11 +359,11 @@ class SQLiteDatabase(Database):
         )
         await conn.commit()
 
-    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
+    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None) -> int:
         conn = await self._get_connection()
         cursor = await conn.execute(
-            "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key) VALUES (?, ?, ?, ?, ?, ?)",
-            (google_id, google_email, ip_address, key_hash, key_prefix, full_key)
+            "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application)
         )
         await conn.commit()
         return cursor.lastrowid
@@ -623,6 +625,7 @@ class SQLiteDatabase(Database):
             google_email=row["google_email"] if "google_email" in row.keys() else None,
             ip_address=row["ip_address"],
             browser_fingerprint=row["browser_fingerprint"] if "browser_fingerprint" in row.keys() else None,
+            rp_application=row["rp_application"] if "rp_application" in row.keys() else None,
             current_rpm=row["current_rpm"], current_rpd=row["current_rpd"],
             last_rpm_reset=self._parse_ts(row["last_rpm_reset"]), last_rpd_reset=self._parse_ts(row["last_rpd_reset"]),
             enabled=bool(row["enabled"]),
@@ -707,6 +710,8 @@ class PostgreSQLDatabase(Database):
                 await conn.execute("ALTER TABLE api_keys ADD COLUMN google_email TEXT")
             if 'bypass_ip_ban' not in existing_col_names:
                 await conn.execute("ALTER TABLE api_keys ADD COLUMN bypass_ip_ban BOOLEAN DEFAULT FALSE")
+            if 'rp_application' not in existing_col_names:
+                await conn.execute("ALTER TABLE api_keys ADD COLUMN rp_application TEXT")
             
             # Create indexes (safe to run multiple times)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_ip ON api_keys(ip_address)")
@@ -764,12 +769,12 @@ class PostgreSQLDatabase(Database):
                 "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
             )
 
-    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown") -> int:
+    async def create_api_key(self, google_id: str, google_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None) -> int:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-                google_id, google_email, ip_address, key_hash, key_prefix, full_key
+                "INSERT INTO api_keys (google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+                google_id, google_email, ip_address, key_hash, key_prefix, full_key, rp_application
             )
             return row["id"]
 
@@ -1037,6 +1042,7 @@ class PostgreSQLDatabase(Database):
             google_email=row.get("google_email"),
             ip_address=row["ip_address"],
             browser_fingerprint=row.get("browser_fingerprint"),
+            rp_application=row.get("rp_application"),
             current_rpm=row["current_rpm"], current_rpd=row["current_rpd"],
             last_rpm_reset=row["last_rpm_reset"], last_rpd_reset=row["last_rpd_reset"],
             enabled=row["enabled"],

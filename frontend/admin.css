@@ -330,3 +330,16 @@
     .analytics-row { grid-template-columns: 1fr; }
     .stat-big { font-size: 1.5rem; }
 }
+
+/* RP Application info in keys table */
+.rp-info {
+    font-size: 0.7rem;
+    color: var(--ink-faded);
+    margin-top: 2px;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+    cursor: help;
+}
