@@ -28,6 +28,11 @@ from backend.database import Database, ApiKeyRecord, create_database
 from backend.session_secret import get_or_create_session_secret
 
 
+# ==================== Early .env Loading ====================
+# Load .env early so env vars are available at module level (before lifespan)
+from dotenv import load_dotenv
+load_dotenv()
+
 # ==================== Discord OAuth Configuration ====================
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
@@ -762,12 +767,14 @@ app = FastAPI(
 )
 
 # ==================== Session Middleware (for OAuth) ====================
-# max_age=1 year so login persists across browser restarts; https_only=False so HTTP (localhost) works
+# max_age=1 year so login persists across browser restarts
+# https_only must match the deployment: True for production HTTPS, False for localhost HTTP
+_PRODUCTION = bool(os.getenv("ZEABUR_SERVICE_ID") or os.getenv("RAILWAY_SERVICE_ID") or os.getenv("RENDER_SERVICE_ID"))
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     max_age=60 * 60 * 24 * 365,
-    https_only=False,
+    https_only=_PRODUCTION,  # True on cloud (HTTPS), False on localhost (HTTP)
     same_site="lax",
 )
 
@@ -991,9 +998,16 @@ async def logout(request: Request):
 @app.get("/api/me")
 async def get_current_user(request: Request):
     """Get current user: session first (more reliable), then cookie."""
-    discord_id = request.session.get("discord_id") or request.cookies.get("discord_id")
+    session_id = request.session.get("discord_id")
+    cookie_id = request.cookies.get("discord_id")
+    discord_id = session_id or cookie_id
+    
     if not discord_id:
         raise HTTPException(status_code=401, detail="Not logged in")
+    
+    # If session lost but cookie still valid, restore session
+    if not session_id and cookie_id:
+        request.session["discord_id"] = cookie_id
     
     key_record = await db.get_key_by_discord_id(discord_id)
     if not key_record:
@@ -1008,16 +1022,28 @@ async def get_current_user(request: Request):
     )
     usage_stats = await db.get_usage_stats(key_record.id)
     
-    return {
+    # Return response with refreshed discord_id cookie (keeps login alive)
+    _secure = _is_https(request)
+    response = JSONResponse(content={
         "key_prefix": key_record.key_prefix,
         "full_key": key_record.full_key,
         "discord_email": key_record.discord_email,
         "enabled": key_record.enabled,
         "current_rpm": key_record.current_rpm,
-        "current_rpd": tokens_today,  # tokens used today (daily quota is token-based)
+        "current_rpd": tokens_today,
         "tokens_per_day_limit": TOKENS_PER_DAY_LIMIT,
         "total_tokens": usage_stats.total_tokens,
-    }
+    })
+    response.set_cookie(
+        key="discord_id",
+        value=discord_id,
+        path="/",
+        httponly=True,
+        secure=_secure,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 365,  # 1 year
+    )
+    return response
 
 
 # ==================== API Key Endpoints ====================
