@@ -57,7 +57,7 @@ oauth.register(
     access_token_url='https://discord.com/api/oauth2/token',
     api_base_url='https://discord.com/api/',
     # Include 'guilds' scope to check guild membership
-    client_kwargs={'scope': 'identify email guilds'},
+    client_kwargs={'scope': 'identify guilds'},
 )
 
 
