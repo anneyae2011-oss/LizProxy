@@ -1703,12 +1703,14 @@ async def admin_list_keys(
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
+    
+    # Batch query: get daily tokens for ALL keys in a single query (avoids N+1)
+    tokens_map = await db.get_daily_tokens_used_all(today_start.isoformat(), today_end.isoformat())
+    
     result = []
     for key in keys:
         try:
-            tokens_today = await db.get_daily_tokens_used(
-                key.id, today_start.isoformat(), today_end.isoformat()
-            )
+            tokens_today = tokens_map.get(key.id, 0)
             result.append(AdminKeyResponse(
                 id=key.id,
                 key_prefix=key.key_prefix or "",

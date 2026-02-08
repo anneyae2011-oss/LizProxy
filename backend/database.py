@@ -228,6 +228,11 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    async def get_daily_tokens_used_all(self, since_utc: str, until_utc: str) -> dict[int, int]:
+        """Return {key_id: tokens_sum} for ALL keys between since_utc and until_utc. Single query."""
+        pass
+
+    @abstractmethod
     async def get_usage_stats(self, key_id: int) -> UsageStats:
         pass
     
@@ -529,6 +534,16 @@ class SQLiteDatabase(Database):
         """, (key_id, since_utc, until_utc))
         row = await cursor.fetchone()
         return int(row[0]) if row and row[0] is not None else 0
+
+    async def get_daily_tokens_used_all(self, since_utc: str, until_utc: str) -> dict[int, int]:
+        conn = await self._get_connection()
+        cursor = await conn.execute("""
+            SELECT api_key_id, COALESCE(SUM(tokens_used), 0) as tokens_sum FROM usage_logs
+            WHERE request_time >= ? AND request_time < ?
+            GROUP BY api_key_id
+        """, (since_utc, until_utc))
+        rows = await cursor.fetchall()
+        return {row[0]: int(row[1]) for row in rows}
 
     async def get_usage_stats(self, key_id: int) -> UsageStats:
         conn = await self._get_connection()
@@ -967,6 +982,24 @@ class PostgreSQLDatabase(Database):
                 WHERE api_key_id = $1 AND request_time >= $2 AND request_time < $3
             """, key_id, since_dt, until_dt)
             return int(row["tokens_sum"]) if row and row["tokens_sum"] is not None else 0
+
+    async def get_daily_tokens_used_all(self, since_utc: str, until_utc: str) -> dict[int, int]:
+        since_dt = since_utc if isinstance(since_utc, datetime) else datetime.fromisoformat(since_utc.replace("Z", "+00:00"))
+        until_dt = until_utc if isinstance(until_utc, datetime) else datetime.fromisoformat(until_utc.replace("Z", "+00:00"))
+        def _naive_utc(dt):
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        since_dt = _naive_utc(since_dt)
+        until_dt = _naive_utc(until_dt)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT api_key_id, COALESCE(SUM(tokens_used), 0) AS tokens_sum FROM usage_logs
+                WHERE request_time >= $1 AND request_time < $2
+                GROUP BY api_key_id
+            """, since_dt, until_dt)
+            return {row["api_key_id"]: int(row["tokens_sum"]) for row in rows}
 
     async def get_usage_stats(self, key_id: int) -> UsageStats:
         pool = await self._get_pool()
