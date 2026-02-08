@@ -343,16 +343,22 @@
     max-width: 200px;
 }
 
+/* Make the entire discord-email cell clickable when it has an RP application */
+td.discord-email:has(.rp-clickable) {
+    cursor: pointer;
+}
+
+td.discord-email:has(.rp-clickable):hover .rp-info {
+    color: var(--ink-primary, #333);
+    text-decoration-style: solid;
+}
+
 .rp-clickable {
     cursor: pointer;
     text-decoration: underline;
     text-decoration-style: dotted;
     transition: color 0.2s;
-}
-
-.rp-clickable:hover {
-    color: var(--ink-primary, #333);
-    text-decoration-style: solid;
+    pointer-events: none; /* Let the parent td handle clicks */
 }
 
 /* Pending approval row highlight */

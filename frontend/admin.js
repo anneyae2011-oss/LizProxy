@@ -508,9 +508,9 @@ function displayKeys(keys) {
         return `
         <tr data-key-id="${key.id}" class="clickable ${isPending ? 'pending-row' : ''}" onclick="showKeyAnalytics(${key.id})">
             <td class="key-prefix">${escapeHtml(key.key_prefix)}</td>
-            <td class="discord-email">
+            <td class="discord-email" ${isPending ? `onclick="event.stopPropagation(); showApplicationModal(${key.id}, ${escapeAttr(JSON.stringify(key.discord_email || key.ip_address || 'Unknown'))}, ${escapeAttr(JSON.stringify(key.rp_application))}, ${key.enabled})"` : ''}>
                 ${escapeHtml(key.discord_email || key.ip_address || 'Unknown')}
-                ${key.rp_application ? `<div class="rp-info rp-clickable" onclick="event.stopPropagation(); showApplicationModal(${key.id}, ${escapeAttr(JSON.stringify(key.discord_email || key.ip_address || 'Unknown'))}, ${escapeAttr(JSON.stringify(key.rp_application))}, ${key.enabled})">RP: ${escapeHtml(key.rp_application.length > 50 ? key.rp_application.substring(0, 50) + '...' : key.rp_application)}</div>` : ''}
+                ${key.rp_application ? `<div class="rp-info${isPending ? ' rp-clickable' : ''}">RP: ${escapeHtml(key.rp_application.length > 50 ? key.rp_application.substring(0, 50) + '...' : key.rp_application)}</div>` : ''}
             </td>
             <td>
                 ${isPending ? `
