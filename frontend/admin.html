@@ -114,6 +114,26 @@
             </div>
         </section>
 
+        <!-- Content Moderation Flags Section -->
+        <section id="flags-section" class="admin-section card flags-sanctuary hidden">
+            <div class="section-header">
+                <h2>⚠️ Content Flags</h2>
+                <span class="flags-count" id="flags-count"></span>
+            </div>
+            <div class="flags-controls">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="show-reviewed-flags" onchange="loadFlags()">
+                    Show reviewed flags
+                </label>
+            </div>
+            <div id="flags-container" class="flags-cards-grid">
+                <div class="loading-cell">Loading...</div>
+            </div>
+            <div id="no-flags-message" class="empty-message hidden">
+                No content flags to review.
+            </div>
+        </section>
+
         <!-- Request Cards Section - Full Width Sanctuary -->
         <section class="admin-section card requests-sanctuary">
             <div class="section-header">

@@ -96,6 +96,26 @@ class BannedIpRecord:
 
 
 @dataclass
+class ContentFlagRecord:
+    """Represents a content moderation flag from the database."""
+    id: int
+    api_key_id: int
+    key_prefix: str
+    discord_id: Optional[str]
+    discord_email: Optional[str]
+    ip_address: str
+    flag_type: str  # 'csam', 'violence', 'hate', etc.
+    severity: str  # 'low', 'medium', 'high', 'critical'
+    message_preview: str  # First 500 chars of flagged content
+    full_message_hash: str  # SHA256 hash of full message for deduplication
+    model: str
+    reviewed: bool
+    action_taken: Optional[str]  # 'banned', 'warned', 'dismissed', etc.
+    flagged_at: datetime
+    reviewed_at: Optional[datetime]
+
+
+@dataclass
 class ProxyConfig:
     """Proxy configuration stored in the database."""
     target_api_url: str
@@ -273,6 +293,46 @@ class Database(ABC):
     @abstractmethod
     async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
         pass
+    
+    # Content flag operations
+    @abstractmethod
+    async def create_content_flag(
+        self,
+        api_key_id: int,
+        flag_type: str,
+        severity: str,
+        message_preview: str,
+        full_message_hash: str,
+        model: str,
+        ip_address: str,
+    ) -> int:
+        """Create a content moderation flag. Returns the flag ID."""
+        pass
+    
+    @abstractmethod
+    async def get_all_flags(self, include_reviewed: bool = False) -> List[ContentFlagRecord]:
+        """Get all content flags, optionally including reviewed ones."""
+        pass
+    
+    @abstractmethod
+    async def get_flag_by_id(self, flag_id: int) -> Optional[ContentFlagRecord]:
+        """Get a specific flag by ID."""
+        pass
+    
+    @abstractmethod
+    async def mark_flag_reviewed(self, flag_id: int, action_taken: str) -> bool:
+        """Mark a flag as reviewed with the action taken. Returns True if found."""
+        pass
+    
+    @abstractmethod
+    async def get_flags_by_key(self, api_key_id: int) -> List[ContentFlagRecord]:
+        """Get all flags for a specific API key."""
+        pass
+    
+    @abstractmethod
+    async def count_unreviewed_flags(self) -> int:
+        """Count unreviewed flags."""
+        pass
 
 
 class SQLiteDatabase(Database):
@@ -377,6 +437,29 @@ class SQLiteDatabase(Database):
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
         )
+        
+        # Content moderation flags table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS content_flags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key_id INTEGER NOT NULL,
+                flag_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                message_preview TEXT NOT NULL,
+                full_message_hash TEXT NOT NULL,
+                model TEXT,
+                ip_address TEXT,
+                reviewed BOOLEAN DEFAULT FALSE,
+                action_taken TEXT,
+                flagged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP,
+                FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE CASCADE
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_key ON content_flags(api_key_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_reviewed ON content_flags(reviewed)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_hash ON content_flags(full_message_hash)")
+        
         await conn.commit()
 
     async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
@@ -705,6 +788,104 @@ class SQLiteDatabase(Database):
         except (ValueError, TypeError):
             return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
 
+    # Content flag operations
+    async def create_content_flag(
+        self,
+        api_key_id: int,
+        flag_type: str,
+        severity: str,
+        message_preview: str,
+        full_message_hash: str,
+        model: str,
+        ip_address: str,
+    ) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute(
+            """INSERT INTO content_flags
+               (api_key_id, flag_type, severity, message_preview, full_message_hash, model, ip_address)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (api_key_id, flag_type, severity, message_preview, full_message_hash, model, ip_address)
+        )
+        await conn.commit()
+        return cursor.lastrowid
+
+    async def get_all_flags(self, include_reviewed: bool = False) -> List[ContentFlagRecord]:
+        conn = await self._get_connection()
+        if include_reviewed:
+            query = """
+                SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+                FROM content_flags cf
+                LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+                ORDER BY cf.flagged_at DESC
+            """
+        else:
+            query = """
+                SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+                FROM content_flags cf
+                LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+                WHERE cf.reviewed = 0
+                ORDER BY cf.flagged_at DESC
+            """
+        cursor = await conn.execute(query)
+        rows = await cursor.fetchall()
+        return [self._row_to_content_flag(row) for row in rows]
+
+    async def get_flag_by_id(self, flag_id: int) -> Optional[ContentFlagRecord]:
+        conn = await self._get_connection()
+        cursor = await conn.execute("""
+            SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+            FROM content_flags cf
+            LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+            WHERE cf.id = ?
+        """, (flag_id,))
+        row = await cursor.fetchone()
+        return self._row_to_content_flag(row) if row else None
+
+    async def mark_flag_reviewed(self, flag_id: int, action_taken: str) -> bool:
+        conn = await self._get_connection()
+        cursor = await conn.execute(
+            "UPDATE content_flags SET reviewed = 1, action_taken = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (action_taken, flag_id)
+        )
+        await conn.commit()
+        return cursor.rowcount > 0
+
+    async def get_flags_by_key(self, api_key_id: int) -> List[ContentFlagRecord]:
+        conn = await self._get_connection()
+        cursor = await conn.execute("""
+            SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+            FROM content_flags cf
+            LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+            WHERE cf.api_key_id = ?
+            ORDER BY cf.flagged_at DESC
+        """, (api_key_id,))
+        rows = await cursor.fetchall()
+        return [self._row_to_content_flag(row) for row in rows]
+
+    async def count_unreviewed_flags(self) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute("SELECT COUNT(*) FROM content_flags WHERE reviewed = 0")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    def _row_to_content_flag(self, row) -> ContentFlagRecord:
+        return ContentFlagRecord(
+            id=row["id"],
+            api_key_id=row["api_key_id"],
+            key_prefix=row["key_prefix"] or "unknown",
+            discord_id=row["discord_id"] if "discord_id" in row.keys() else None,
+            discord_email=row["discord_email"] if "discord_email" in row.keys() else None,
+            ip_address=row["ip_address"] or "unknown",
+            flag_type=row["flag_type"],
+            severity=row["severity"],
+            message_preview=row["message_preview"],
+            full_message_hash=row["full_message_hash"],
+            model=row["model"] or "unknown",
+            reviewed=bool(row["reviewed"]),
+            action_taken=row["action_taken"],
+            flagged_at=self._parse_ts(row["flagged_at"]),
+            reviewed_at=self._parse_ts(row["reviewed_at"]) if row["reviewed_at"] else None,
+        )
 
 
 class PostgreSQLDatabase(Database):
@@ -821,6 +1002,27 @@ class PostgreSQLDatabase(Database):
             await conn.execute(
                 "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
             )
+            
+            # Content moderation flags table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS content_flags (
+                    id SERIAL PRIMARY KEY,
+                    api_key_id INTEGER NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+                    flag_type TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    message_preview TEXT NOT NULL,
+                    full_message_hash TEXT NOT NULL,
+                    model TEXT,
+                    ip_address TEXT,
+                    reviewed BOOLEAN DEFAULT FALSE,
+                    action_taken TEXT,
+                    flagged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reviewed_at TIMESTAMP
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_key ON content_flags(api_key_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_reviewed ON content_flags(reviewed)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_hash ON content_flags(full_message_hash)")
 
     async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
         pool = await self._get_pool()
@@ -1161,4 +1363,104 @@ class PostgreSQLDatabase(Database):
             input_tokens=row["input_tokens"] or 0, output_tokens=row["output_tokens"] or 0,
             total_tokens=row["tokens_used"] or 0, success=row["success"],
             error_message=row["error_message"], request_time=row["request_time"],
+        )
+
+    # Content flag operations
+    async def create_content_flag(
+        self,
+        api_key_id: int,
+        flag_type: str,
+        severity: str,
+        message_preview: str,
+        full_message_hash: str,
+        model: str,
+        ip_address: str,
+    ) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO content_flags
+                   (api_key_id, flag_type, severity, message_preview, full_message_hash, model, ip_address)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+                api_key_id, flag_type, severity, message_preview, full_message_hash, model, ip_address
+            )
+            return row["id"]
+
+    async def get_all_flags(self, include_reviewed: bool = False) -> List[ContentFlagRecord]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if include_reviewed:
+                query = """
+                    SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+                    FROM content_flags cf
+                    LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+                    ORDER BY cf.flagged_at DESC
+                """
+                rows = await conn.fetch(query)
+            else:
+                query = """
+                    SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+                    FROM content_flags cf
+                    LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+                    WHERE cf.reviewed = FALSE
+                    ORDER BY cf.flagged_at DESC
+                """
+                rows = await conn.fetch(query)
+            return [self._row_to_content_flag(row) for row in rows]
+
+    async def get_flag_by_id(self, flag_id: int) -> Optional[ContentFlagRecord]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+                FROM content_flags cf
+                LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+                WHERE cf.id = $1
+            """, flag_id)
+            return self._row_to_content_flag(row) if row else None
+
+    async def mark_flag_reviewed(self, flag_id: int, action_taken: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE content_flags SET reviewed = TRUE, action_taken = $1, reviewed_at = CURRENT_TIMESTAMP WHERE id = $2",
+                action_taken, flag_id
+            )
+            return result == "UPDATE 1"
+
+    async def get_flags_by_key(self, api_key_id: int) -> List[ContentFlagRecord]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT cf.*, ak.key_prefix, ak.discord_id, ak.discord_email
+                FROM content_flags cf
+                LEFT JOIN api_keys ak ON cf.api_key_id = ak.id
+                WHERE cf.api_key_id = $1
+                ORDER BY cf.flagged_at DESC
+            """, api_key_id)
+            return [self._row_to_content_flag(row) for row in rows]
+
+    async def count_unreviewed_flags(self) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT COUNT(*) FROM content_flags WHERE reviewed = FALSE")
+            return row[0] if row else 0
+
+    def _row_to_content_flag(self, row) -> ContentFlagRecord:
+        return ContentFlagRecord(
+            id=row["id"],
+            api_key_id=row["api_key_id"],
+            key_prefix=self._safe_get(row, "key_prefix", "unknown"),
+            discord_id=self._safe_get(row, "discord_id"),
+            discord_email=self._safe_get(row, "discord_email"),
+            ip_address=row["ip_address"] or "unknown",
+            flag_type=row["flag_type"],
+            severity=row["severity"],
+            message_preview=row["message_preview"],
+            full_message_hash=row["full_message_hash"],
+            model=row["model"] or "unknown",
+            reviewed=row["reviewed"],
+            action_taken=row["action_taken"],
+            flagged_at=row["flagged_at"],
+            reviewed_at=row["reviewed_at"],
         )

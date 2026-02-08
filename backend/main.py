@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from authlib.integrations.starlette_client import OAuth
 
 from backend.config import load_settings, Settings
-from backend.database import Database, ApiKeyRecord, create_database
+from backend.database import Database, ApiKeyRecord, create_database, ContentFlagRecord
 from backend.session_secret import get_or_create_session_secret
 
 
@@ -55,6 +55,13 @@ oauth.register(
     api_base_url='https://discord.com/api/',
     client_kwargs={'scope': 'identify email'},
 )
+
+
+# ==================== VoidAI Content Moderation Configuration ====================
+
+VOIDAI_API_URL = os.getenv("VOIDAI_API_URL", "https://api.voidai.app/v1")
+VOIDAI_API_KEY = os.getenv("VOIDAI_API_KEY", "")
+MODERATION_ENABLED = os.getenv("MODERATION_ENABLED", "true").lower() == "true"
 
 
 # ==================== Path Configuration ====================
@@ -195,6 +202,30 @@ class KeyAnalyticsResponse(BaseModel):
     most_used_model: Optional[str]
     model_usage_count: int
     recent_requests: list[RequestLogResponse]
+
+
+class ContentFlagResponse(BaseModel):
+    """Response model for content moderation flags."""
+    id: int
+    api_key_id: int
+    key_prefix: str
+    discord_id: Optional[str]
+    discord_email: Optional[str]
+    ip_address: str
+    flag_type: str
+    severity: str
+    message_preview: str
+    model: str
+    reviewed: bool
+    action_taken: Optional[str]
+    flagged_at: str
+    reviewed_at: Optional[str]
+
+
+class FlagActionRequest(BaseModel):
+    """Request model for taking action on a flag."""
+    action: str  # 'ban_ip', 'disable_key', 'dismiss', 'warn'
+    reason: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
@@ -576,6 +607,148 @@ def count_tokens(messages: list[ChatMessage]) -> int:
     
     # Approximate 4 characters per token
     return total_chars // 4
+
+
+# ==================== Content Moderation ====================
+
+async def check_content_moderation(
+    messages: list[ChatMessage],
+    key_record: "ApiKeyRecord",
+    client_ip: str,
+    model: str,
+) -> Optional[dict]:
+    """Check messages for CSAM and other harmful content using VoidAI Omni AI.
+    
+    This function sends the message content to VoidAI's moderation API before
+    the request is forwarded to the target API. If harmful content is detected,
+    it creates a flag in the database and returns the moderation result.
+    
+    Args:
+        messages: List of chat messages to check.
+        key_record: The API key record for the user.
+        client_ip: The client's IP address.
+        model: The model being requested.
+    
+    Returns:
+        None if content is safe, or a dict with flag details if flagged.
+    """
+    if not MODERATION_ENABLED or not VOIDAI_API_KEY:
+        return None
+    
+    # Combine all message content for moderation
+    combined_content = "\n".join([
+        f"{msg.role}: {msg.content}" for msg in messages
+    ])
+    
+    # Truncate for preview (first 500 chars)
+    message_preview = combined_content[:500] if len(combined_content) > 500 else combined_content
+    
+    # Hash the full content for deduplication
+    full_message_hash = hashlib.sha256(combined_content.encode()).hexdigest()
+    
+    try:
+        # Call VoidAI Omni AI moderation endpoint
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{VOIDAI_API_URL}/moderations",
+                headers={
+                    "Authorization": f"Bearer {VOIDAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "input": combined_content,
+                    "model": "omni-moderation-latest",
+                }
+            )
+            
+            if response.status_code != 200:
+                # Log error but don't block the request
+                print(f"[Moderation] VoidAI API error: {response.status_code} - {response.text[:200]}")
+                return None
+            
+            result = response.json()
+            
+            # Check if content was flagged
+            if not result.get("results"):
+                return None
+            
+            moderation_result = result["results"][0]
+            
+            if not moderation_result.get("flagged"):
+                return None
+            
+            # Content was flagged - determine severity and type
+            categories = moderation_result.get("categories", {})
+            category_scores = moderation_result.get("category_scores", {})
+            
+            # Determine the primary flag type and severity
+            flag_type = "unknown"
+            severity = "low"
+            max_score = 0.0
+            
+            # Priority order for flag types (CSAM is highest priority)
+            priority_categories = [
+                ("sexual/minors", "csam"),
+                ("sexual", "sexual"),
+                ("violence/graphic", "violence"),
+                ("violence", "violence"),
+                ("hate/threatening", "hate"),
+                ("hate", "hate"),
+                ("harassment/threatening", "harassment"),
+                ("harassment", "harassment"),
+                ("self-harm/intent", "self_harm"),
+                ("self-harm/instructions", "self_harm"),
+                ("self-harm", "self_harm"),
+            ]
+            
+            for category_key, flag_name in priority_categories:
+                if categories.get(category_key):
+                    score = category_scores.get(category_key, 0)
+                    if score > max_score:
+                        max_score = score
+                        flag_type = flag_name
+            
+            # Determine severity based on score
+            if max_score >= 0.9:
+                severity = "critical"
+            elif max_score >= 0.7:
+                severity = "high"
+            elif max_score >= 0.4:
+                severity = "medium"
+            else:
+                severity = "low"
+            
+            # CSAM is always critical
+            if flag_type == "csam":
+                severity = "critical"
+            
+            # Create flag in database
+            flag_id = await db.create_content_flag(
+                api_key_id=key_record.id,
+                flag_type=flag_type,
+                severity=severity,
+                message_preview=message_preview,
+                full_message_hash=full_message_hash,
+                model=model,
+                ip_address=client_ip,
+            )
+            
+            print(f"[Moderation] Content flagged: type={flag_type}, severity={severity}, key={key_record.key_prefix}, flag_id={flag_id}")
+            
+            return {
+                "flagged": True,
+                "flag_id": flag_id,
+                "flag_type": flag_type,
+                "severity": severity,
+                "categories": categories,
+            }
+            
+    except httpx.TimeoutException:
+        print("[Moderation] VoidAI API timeout - allowing request")
+        return None
+    except Exception as e:
+        print(f"[Moderation] Error: {e} - allowing request")
+        return None
 
 
 async def get_max_context() -> int:
@@ -1362,6 +1535,34 @@ async def proxy_chat_completions(
     rate_result = await check_and_update_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
     if not rate_result.allowed:
         return create_rate_limit_response(rate_result)
+    
+    # CSAM/Content moderation check BEFORE forwarding to provider
+    moderation_result = await check_content_moderation(
+        messages=chat_request.messages,
+        key_record=key_record,
+        client_ip=client_ip,
+        model=chat_request.model,
+    )
+    
+    if moderation_result and moderation_result.get("flagged"):
+        # Content was flagged - log and block the request
+        # For critical severity (CSAM), we block immediately
+        if moderation_result.get("severity") == "critical":
+            await db.log_usage(
+                key_id=key_record.id,
+                model=chat_request.model,
+                tokens=token_count,
+                success=False,
+                ip_address=client_ip,
+                input_tokens=token_count,
+                error_message=f"Content blocked: {moderation_result.get('flag_type')}",
+            )
+            raise HTTPException(
+                status_code=451,  # Unavailable For Legal Reasons
+                detail="Your request has been blocked due to content policy violations. This incident has been logged."
+            )
+        # For non-critical flags, we still log but allow the request (admin can review)
+        # The flag is already created in the database by check_content_moderation()
     
     # Get target API config
     target_url, target_key = await get_target_api_config()
@@ -2219,6 +2420,215 @@ async def admin_get_key_analytics(
             for req in analytics.recent_requests
         ],
     )
+
+
+# ==================== Content Moderation Flags Admin Endpoints ====================
+
+@app.get(
+    "/admin/flags",
+    response_model=list[ContentFlagResponse],
+    responses={401: {"model": ErrorResponse}},
+)
+async def admin_list_flags(
+    include_reviewed: bool = False,
+    _: str = Depends(verify_admin_password),
+) -> list[ContentFlagResponse]:
+    """List all content moderation flags.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Args:
+        include_reviewed: If True, include already-reviewed flags.
+    
+    Returns:
+        List of content flags with user details.
+    """
+    flags = await db.get_all_flags(include_reviewed=include_reviewed)
+    return [
+        ContentFlagResponse(
+            id=flag.id,
+            api_key_id=flag.api_key_id,
+            key_prefix=flag.key_prefix,
+            discord_id=flag.discord_id,
+            discord_email=flag.discord_email,
+            ip_address=flag.ip_address,
+            flag_type=flag.flag_type,
+            severity=flag.severity,
+            message_preview=flag.message_preview,
+            model=flag.model,
+            reviewed=flag.reviewed,
+            action_taken=flag.action_taken,
+            flagged_at=flag.flagged_at.isoformat() if flag.flagged_at else None,
+            reviewed_at=flag.reviewed_at.isoformat() if flag.reviewed_at else None,
+        )
+        for flag in flags
+    ]
+
+
+@app.get(
+    "/admin/flags/count",
+    responses={401: {"model": ErrorResponse}},
+)
+async def admin_count_unreviewed_flags(
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Get count of unreviewed flags.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Returns:
+        Count of unreviewed flags.
+    """
+    count = await db.count_unreviewed_flags()
+    return {"count": count}
+
+
+@app.get(
+    "/admin/flags/{flag_id}",
+    response_model=ContentFlagResponse,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def admin_get_flag(
+    flag_id: int,
+    _: str = Depends(verify_admin_password),
+) -> ContentFlagResponse:
+    """Get a specific content flag by ID.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Args:
+        flag_id: The ID of the flag to retrieve.
+    
+    Returns:
+        The content flag details.
+    """
+    flag = await db.get_flag_by_id(flag_id)
+    if not flag:
+        raise HTTPException(status_code=404, detail="Flag not found")
+    
+    return ContentFlagResponse(
+        id=flag.id,
+        api_key_id=flag.api_key_id,
+        key_prefix=flag.key_prefix,
+        discord_id=flag.discord_id,
+        discord_email=flag.discord_email,
+        ip_address=flag.ip_address,
+        flag_type=flag.flag_type,
+        severity=flag.severity,
+        message_preview=flag.message_preview,
+        model=flag.model,
+        reviewed=flag.reviewed,
+        action_taken=flag.action_taken,
+        flagged_at=flag.flagged_at.isoformat() if flag.flagged_at else None,
+        reviewed_at=flag.reviewed_at.isoformat() if flag.reviewed_at else None,
+    )
+
+
+@app.post(
+    "/admin/flags/{flag_id}/action",
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def admin_flag_action(
+    flag_id: int,
+    action_request: FlagActionRequest,
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Take action on a content flag.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Actions:
+        - ban_ip: Ban the IP address associated with the flag
+        - disable_key: Disable the API key associated with the flag
+        - dismiss: Mark as reviewed without action
+        - warn: Mark as reviewed with warning (no automatic action)
+    
+    Args:
+        flag_id: The ID of the flag to act on.
+        action_request: The action to take and optional reason.
+    
+    Returns:
+        Success message.
+    """
+    flag = await db.get_flag_by_id(flag_id)
+    if not flag:
+        raise HTTPException(status_code=404, detail="Flag not found")
+    
+    action = action_request.action
+    reason = action_request.reason or f"Content flag #{flag_id}: {flag.flag_type}"
+    
+    if action == "ban_ip":
+        # Ban the IP address
+        await db.ban_ip(flag.ip_address, reason)
+        await db.mark_flag_reviewed(flag_id, f"banned_ip: {flag.ip_address}")
+        return {"message": f"IP {flag.ip_address} has been banned", "action": "ban_ip"}
+    
+    elif action == "disable_key":
+        # Disable the API key
+        await db.toggle_key(flag.api_key_id)
+        await db.mark_flag_reviewed(flag_id, f"disabled_key: {flag.key_prefix}")
+        return {"message": f"API key {flag.key_prefix} has been disabled", "action": "disable_key"}
+    
+    elif action == "ban_and_disable":
+        # Both ban IP and disable key
+        await db.ban_ip(flag.ip_address, reason)
+        await db.toggle_key(flag.api_key_id)
+        await db.mark_flag_reviewed(flag_id, f"banned_ip_and_disabled_key: {flag.ip_address}, {flag.key_prefix}")
+        return {"message": f"IP {flag.ip_address} banned and key {flag.key_prefix} disabled", "action": "ban_and_disable"}
+    
+    elif action == "dismiss":
+        # Just mark as reviewed
+        await db.mark_flag_reviewed(flag_id, "dismissed")
+        return {"message": "Flag dismissed", "action": "dismiss"}
+    
+    elif action == "warn":
+        # Mark as reviewed with warning
+        await db.mark_flag_reviewed(flag_id, f"warned: {reason}")
+        return {"message": "Flag marked as warned", "action": "warn"}
+    
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+
+@app.get(
+    "/admin/keys/{key_id}/flags",
+    response_model=list[ContentFlagResponse],
+    responses={401: {"model": ErrorResponse}},
+)
+async def admin_get_key_flags(
+    key_id: int,
+    _: str = Depends(verify_admin_password),
+) -> list[ContentFlagResponse]:
+    """Get all flags for a specific API key.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Args:
+        key_id: The ID of the API key.
+    
+    Returns:
+        List of flags for this key.
+    """
+    flags = await db.get_flags_by_key(key_id)
+    return [
+        ContentFlagResponse(
+            id=flag.id,
+            api_key_id=flag.api_key_id,
+            key_prefix=flag.key_prefix,
+            discord_id=flag.discord_id,
+            discord_email=flag.discord_email,
+            ip_address=flag.ip_address,
+            flag_type=flag.flag_type,
+            severity=flag.severity,
+            message_preview=flag.message_preview,
+            model=flag.model,
+            reviewed=flag.reviewed,
+            action_taken=flag.action_taken,
+            flagged_at=flag.flagged_at.isoformat() if flag.flagged_at else None,
+            reviewed_at=flag.reviewed_at.isoformat() if flag.reviewed_at else None,
+        )
+        for flag in flags
+    ]
 
 
 # ==================== Debug Endpoint ====================
