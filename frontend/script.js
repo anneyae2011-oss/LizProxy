@@ -98,6 +98,10 @@ async function init() {
             message = 'Discord login failed. Please try again.';
         } else if (error === 'no_discord_id') {
             message = 'Could not retrieve your Discord account info. Please try again.';
+        } else if (error === 'not_in_guild') {
+            message = 'You must be a member of the required Discord server to sign up. Please join the server first and try again.';
+        } else if (error === 'guild_check_failed') {
+            message = 'Could not verify your Discord server membership. Please try again.';
         } else {
             message = urlParams.get('message') || error;
             message = `Login failed: ${message}`;

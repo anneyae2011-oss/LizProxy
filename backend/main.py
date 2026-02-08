@@ -44,6 +44,9 @@ SESSION_SECRET = get_or_create_session_secret(
     database_path=os.getenv("DATABASE_PATH", "./proxy.db"),
 )
 
+# Required Discord guild ID for signup (leave empty to allow all)
+REQUIRED_GUILD_ID = os.getenv("REQUIRED_GUILD_ID", "")
+
 # Initialize OAuth
 oauth = OAuth()
 oauth.register(
@@ -53,7 +56,8 @@ oauth.register(
     authorize_url='https://discord.com/api/oauth2/authorize',
     access_token_url='https://discord.com/api/oauth2/token',
     api_base_url='https://discord.com/api/',
-    client_kwargs={'scope': 'identify email'},
+    # Include 'guilds' scope to check guild membership
+    client_kwargs={'scope': 'identify email guilds'},
 )
 
 
@@ -1027,6 +1031,23 @@ async def discord_callback(request: Request):
                 print(f"[Discord API Error] Status: {resp.status_code}, Body: {resp.text[:500]}")
                 return RedirectResponse(url="/?error=no_user_info")
             user_info = resp.json()
+            
+            # Check guild membership if REQUIRED_GUILD_ID is set
+            if REQUIRED_GUILD_ID:
+                guilds_resp = await client.get(
+                    'https://discord.com/api/users/@me/guilds',
+                    headers={'Authorization': f'Bearer {token["access_token"]}'},
+                )
+                if guilds_resp.status_code != 200:
+                    print(f"[Discord Guilds API Error] Status: {guilds_resp.status_code}, Body: {guilds_resp.text[:500]}")
+                    return RedirectResponse(url="/?error=guild_check_failed")
+                
+                user_guilds = guilds_resp.json()
+                guild_ids = [str(g.get('id', '')) for g in user_guilds]
+                
+                if REQUIRED_GUILD_ID not in guild_ids:
+                    print(f"[Guild Check] User {user_info.get('username')} not in required guild {REQUIRED_GUILD_ID}")
+                    return RedirectResponse(url="/?error=not_in_guild")
         
         discord_id = str(user_info.get('id', ''))  # Discord user ID (snowflake)
         discord_email = user_info.get('email', '')
