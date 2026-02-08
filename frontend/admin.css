@@ -343,34 +343,6 @@
     max-width: 200px;
 }
 
-/* Make the entire discord-email cell clickable when it has an RP application */
-td.discord-email:has(.rp-clickable) {
-    cursor: pointer;
-}
-
-td.discord-email:has(.rp-clickable):hover .rp-info {
-    color: var(--ink-primary, #333);
-    text-decoration-style: solid;
-}
-
-.rp-clickable {
-    cursor: pointer;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-    transition: color 0.2s;
-    pointer-events: none; /* Let the parent td handle clicks */
-}
-
-/* Pending approval row highlight */
-.pending-row {
-    background: rgba(255, 200, 100, 0.08) !important;
-    border-left: 3px solid rgba(255, 180, 50, 0.6);
-}
-
-.pending-row:hover {
-    background: rgba(255, 200, 100, 0.15) !important;
-}
-
 /* Pending status badge */
 .status-badge.pending {
     background: rgba(255, 180, 50, 0.2);
@@ -401,38 +373,146 @@ td.discord-email:has(.rp-clickable):hover .rp-info {
     color: #81C784 !important;
 }
 
-/* Application Review Modal */
-.application-details {
-    padding: var(--space-md) 0;
+/* ===================================
+   Pending Applications Section
+   =================================== */
+
+.pending-sanctuary {
+    padding: var(--space-md) var(--space-lg);
+    border-left: 4px solid rgba(255, 180, 50, 0.6);
+    background: linear-gradient(135deg, rgba(255, 248, 230, 0.5), rgba(255, 245, 220, 0.3));
 }
 
-.application-user {
-    margin-bottom: var(--space-md);
+[data-theme="dark"] .pending-sanctuary {
+    background: linear-gradient(135deg, rgba(80, 65, 30, 0.3), rgba(70, 55, 25, 0.2));
+    border-left-color: rgba(255, 180, 50, 0.4);
+}
+
+.pending-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #B8860B;
+    background: rgba(255, 180, 50, 0.15);
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 180, 50, 0.3);
+}
+
+[data-theme="dark"] .pending-count {
+    color: #DAA520;
+}
+
+.pending-cards-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pending-card {
+    background: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(255, 252, 240, 0.85));
+    border: 1.5px solid rgba(255, 200, 100, 0.4);
+    border-radius: 16px;
+    padding: 0;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 12px rgba(200, 170, 80, 0.1);
+}
+
+.pending-card:hover {
+    box-shadow: 0 6px 24px rgba(200, 170, 80, 0.18);
+    transform: translateY(-1px);
+}
+
+[data-theme="dark"] .pending-card {
+    background: linear-gradient(165deg, rgba(55, 50, 35, 0.85), rgba(50, 45, 30, 0.75));
+    border-color: rgba(180, 150, 60, 0.35);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+.pending-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    background: rgba(255, 240, 200, 0.3);
+    border-bottom: 1px solid rgba(255, 200, 100, 0.2);
+}
+
+[data-theme="dark"] .pending-card-header {
+    background: rgba(80, 65, 30, 0.25);
+    border-bottom-color: rgba(180, 150, 60, 0.2);
+}
+
+.pending-user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pending-icon {
+    font-size: 1.4rem;
+}
+
+.pending-user-name {
+    font-weight: 600;
     font-size: 0.95rem;
+    color: var(--ink-primary, #2A2040);
 }
 
-.application-text {
-    margin-bottom: var(--space-md);
+.pending-key-prefix {
+    font-family: Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--ink-faded);
+    margin-top: 1px;
 }
 
-.application-body {
-    background: var(--glass-bg, rgba(255,255,255,0.5));
-    border: 1px solid var(--glass-border, rgba(0,0,0,0.1));
-    border-radius: 8px;
-    padding: var(--space-md);
-    margin-top: var(--space-sm);
+.pending-card-body {
+    padding: 16px 18px;
+}
+
+.pending-message-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-faded);
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.pending-message-text {
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(200, 185, 150, 0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
     font-size: 0.9rem;
-    line-height: 1.6;
+    line-height: 1.65;
+    color: var(--ink-primary, #2A2040);
     white-space: pre-wrap;
     word-wrap: break-word;
-    max-height: 300px;
+    max-height: 200px;
     overflow-y: auto;
 }
 
-.application-actions {
+[data-theme="dark"] .pending-message-text {
+    background: rgba(40, 35, 25, 0.5);
+    border-color: rgba(120, 100, 60, 0.3);
+    color: var(--ink-primary, #E8E0F0);
+}
+
+.pending-card-actions {
     display: flex;
-    gap: var(--space-sm);
+    gap: 10px;
+    padding: 12px 18px 16px;
     justify-content: flex-end;
-    padding-top: var(--space-md);
-    border-top: 1px solid var(--glass-border, rgba(0,0,0,0.1));
+    border-top: 1px solid rgba(255, 200, 100, 0.15);
+}
+
+[data-theme="dark"] .pending-card-actions {
+    border-top-color: rgba(180, 150, 60, 0.15);
+}
+
+.pending-card-actions .btn {
+    padding: 8px 20px;
+    font-size: 0.85rem;
+    border-radius: 10px;
 }

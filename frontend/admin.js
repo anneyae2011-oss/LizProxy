@@ -490,38 +490,35 @@ function displayKeys(keys) {
     if (!keys || keys.length === 0) {
         keysTbody.innerHTML = '';
         noKeysMessage.classList.remove('hidden');
+        displayPendingApplications([]);
         return;
     }
     
     noKeysMessage.classList.add('hidden');
-    // Sort: pending approval (disabled + has RP) first, then enabled, then disabled
-    const sortedKeys = [...keys].sort((a, b) => {
-        const aPending = !a.enabled && a.rp_application;
-        const bPending = !b.enabled && b.rp_application;
-        if (aPending && !bPending) return -1;
-        if (!aPending && bPending) return 1;
-        return 0;
-    });
     
-    keysTbody.innerHTML = sortedKeys.map(key => {
-        const isPending = !key.enabled && key.rp_application;
-        return `
-        <tr data-key-id="${key.id}" class="clickable ${isPending ? 'pending-row' : ''}" onclick="showKeyAnalytics(${key.id})">
+    // Separate pending applications from active keys
+    const pendingKeys = keys.filter(k => !k.enabled && k.rp_application);
+    const activeKeys = keys.filter(k => k.enabled || !k.rp_application);
+    
+    // Render pending applications in their own section
+    displayPendingApplications(pendingKeys);
+    
+    // Render active/non-pending keys in the table
+    if (activeKeys.length === 0) {
+        keysTbody.innerHTML = '';
+        noKeysMessage.classList.remove('hidden');
+    } else {
+        keysTbody.innerHTML = activeKeys.map(key => `
+        <tr data-key-id="${key.id}" class="clickable" onclick="showKeyAnalytics(${key.id})">
             <td class="key-prefix">${escapeHtml(key.key_prefix)}</td>
-            <td class="discord-email" ${isPending ? `onclick="event.stopPropagation(); showApplicationModal(${key.id}, ${escapeAttr(JSON.stringify(key.discord_email || key.ip_address || 'Unknown'))}, ${escapeAttr(JSON.stringify(key.rp_application))}, ${key.enabled})"` : ''}>
+            <td class="discord-email">
                 ${escapeHtml(key.discord_email || key.ip_address || 'Unknown')}
-                ${key.rp_application ? `<div class="rp-info${isPending ? ' rp-clickable' : ''}">RP: ${escapeHtml(key.rp_application.length > 50 ? key.rp_application.substring(0, 50) + '...' : key.rp_application)}</div>` : ''}
+                ${key.rp_application ? `<div class="rp-info">RP: ${escapeHtml(key.rp_application.length > 50 ? key.rp_application.substring(0, 50) + '...' : key.rp_application)}</div>` : ''}
             </td>
             <td>
-                ${isPending ? `
-                <span class="status-badge pending">
-                    ⏳ Pending
-                </span>
-                ` : `
                 <span class="status-badge ${key.enabled ? 'enabled' : 'disabled'}">
                     ${key.enabled ? 'Enabled' : 'Disabled'}
                 </span>
-                `}
             </td>
             <td>
                 <span class="status-badge ${key.bypass_ip_ban ? 'enabled' : 'disabled'}">
@@ -538,24 +535,64 @@ function displayKeys(keys) {
             <td title="Tokens today / 150K limit">${key.tokens_used_today != null ? key.tokens_used_today.toLocaleString() : key.current_rpd}/${(150000).toLocaleString()}</td>
             <td>
                 <div class="action-buttons" onclick="event.stopPropagation()">
-                    ${isPending ? `
-                    <button onclick="toggleKey(${key.id}, ${key.enabled})"
-                            class="btn btn-approve btn-sm">
-                        ✓ Approve
-                    </button>
-                    ` : `
                     <button onclick="toggleKey(${key.id}, ${key.enabled})"
                             class="btn ${key.enabled ? 'btn-warning' : 'btn-ghost'} btn-sm">
                         ${key.enabled ? 'Disable' : 'Enable'}
                     </button>
-                    `}
                     <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">
-                        ${isPending ? 'Reject' : 'Delete'}
+                        Delete
                     </button>
                 </div>
             </td>
         </tr>
-    `}).join('');
+    `).join('');
+    }
+}
+
+/**
+ * Display pending applications as prominent cards
+ */
+function displayPendingApplications(pendingKeys) {
+    const section = document.getElementById('pending-section');
+    const container = document.getElementById('pending-applications');
+    const countEl = document.getElementById('pending-count');
+    
+    if (!section || !container) return;
+    
+    if (!pendingKeys || pendingKeys.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+    
+    section.classList.remove('hidden');
+    if (countEl) countEl.textContent = `${pendingKeys.length} pending`;
+    
+    container.innerHTML = pendingKeys.map(key => `
+        <div class="pending-card" data-key-id="${key.id}">
+            <div class="pending-card-header">
+                <div class="pending-user-info">
+                    <span class="pending-icon">⏳</span>
+                    <div>
+                        <div class="pending-user-name">${escapeHtml(key.discord_email || key.ip_address || 'Unknown')}</div>
+                        <div class="pending-key-prefix">${escapeHtml(key.key_prefix)}</div>
+                    </div>
+                </div>
+                <span class="status-badge pending">Pending</span>
+            </div>
+            <div class="pending-card-body">
+                <div class="pending-message-label">Their Application:</div>
+                <div class="pending-message-text">${escapeHtml(key.rp_application)}</div>
+            </div>
+            <div class="pending-card-actions">
+                <button onclick="approveFromCard(${key.id})" class="btn btn-approve">
+                    ✓ Approve
+                </button>
+                <button onclick="denyFromCard(${key.id})" class="btn btn-danger">
+                    ✕ Deny
+                </button>
+            </div>
+        </div>
+    `).join('');
 }
 
 async function setBypassIp(keyId, bypass) {
@@ -751,74 +788,21 @@ document.addEventListener('click', (e) => {
 
 
 // ===================================
-// Application Review Modal
+// Pending Application Card Actions
 // ===================================
 
-function showApplicationModal(keyId, userName, applicationText, isEnabled) {
-    const modal = document.getElementById('application-modal');
-    const content = document.getElementById('application-modal-content');
-    
-    content.innerHTML = `
-        <div class="modal-header">
-            <h2>RP Application</h2>
-            <button onclick="closeApplicationModal()" class="btn btn-ghost btn-sm">✕</button>
-        </div>
-        <div class="application-details">
-            <div class="application-user">
-                <strong>User:</strong> ${escapeHtml(userName)}
-            </div>
-            <div class="application-text">
-                <strong>Application:</strong>
-                <p class="application-body">${escapeHtml(applicationText)}</p>
-            </div>
-        </div>
-        <div class="application-actions">
-            ${!isEnabled ? `
-            <button onclick="approveApplication(${keyId})" class="btn btn-approve">
-                ✓ Accept
-            </button>
-            ` : `
-            <span class="status-badge enabled" style="padding: 8px 16px;">Already Approved</span>
-            `}
-            <button onclick="denyApplication(${keyId})" class="btn btn-danger">
-                ✕ Deny
-            </button>
-            <button onclick="closeApplicationModal()" class="btn btn-ghost">
-                Close
-            </button>
-        </div>
-    `;
-    
-    modal.classList.remove('hidden');
-}
-
-function closeApplicationModal() {
-    const modal = document.getElementById('application-modal');
-    modal.classList.add('hidden');
-}
-
-async function approveApplication(keyId) {
+async function approveFromCard(keyId) {
     await toggleKey(keyId, false);  // false = currently disabled, so toggle enables it
-    closeApplicationModal();
     logToConsole(`Approved application for key #${keyId}`, 'success');
     showAdminStatus('Application approved — key enabled', 'success');
 }
 
-async function denyApplication(keyId) {
+async function denyFromCard(keyId) {
     if (!confirm('Deny this application and delete the key?')) return;
     await deleteKey(keyId);
-    closeApplicationModal();
     logToConsole(`Denied application for key #${keyId}`, 'info');
     showAdminStatus('Application denied — key deleted', 'info');
 }
-
-// Close application modal when clicking outside
-document.addEventListener('click', (e) => {
-    const modal = document.getElementById('application-modal');
-    if (e.target === modal) {
-        closeApplicationModal();
-    }
-});
 
 
 // ===================================

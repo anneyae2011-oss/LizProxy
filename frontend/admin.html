@@ -82,14 +82,6 @@
         </div>
     </div>
 
-    <!-- Application Review Modal -->
-    <div id="application-modal" class="modal hidden">
-        <div class="modal-content card analytics-modal-content">
-            <div id="application-modal-content">
-                <div class="loading-cell">Loading...</div>
-            </div>
-        </div>
-    </div>
 
     <!-- Main Admin Content -->
     <main id="admin-content" class="container admin-container hidden">
@@ -109,6 +101,16 @@
             </div>
             <div id="console-log" class="console-log">
                 <div class="console-entry info">Waiting for activity...</div>
+            </div>
+        </section>
+
+        <!-- Pending Applications Section -->
+        <section id="pending-section" class="admin-section card pending-sanctuary hidden">
+            <div class="section-header">
+                <h2>✧ Pending Applications ✧</h2>
+                <span class="pending-count" id="pending-count"></span>
+            </div>
+            <div id="pending-applications" class="pending-cards-grid">
             </div>
         </section>
 
