@@ -883,23 +883,12 @@ async def discord_callback(request: Request):
             )
             return response
         
-        # Abuse protection: limit Discord-authenticated keys per IP
-        # Only count keys that were created via Discord OAuth (have a real discord_id),
-        # not legacy IP-based keys (discord_id starts with "ip_")
-        # NOTE: Only count ENABLED keys — pending-approval (disabled) keys should not
-        # block new signups from shared IPs (VPNs, universities, corporate networks).
+        # NOTE: No IP-based limit for Discord OAuth — each Discord account can only
+        # have ONE key (enforced by discord_id UNIQUE constraint). The IP limit was
+        # causing problems for users on shared networks (VPNs, universities, etc.)
+        # where multiple legitimate users share the same IP address.
+        # The legacy /api/generate-key endpoint still has IP limits for abuse protection.
         client_ip = get_client_ip(request)
-        max_keys = (settings.max_keys_per_ip if settings else 2)
-        discord_key_count = await db.count_discord_keys_by_ip(client_ip)
-        if discord_key_count >= max_keys:
-            # Before rejecting, clean up any disabled (pending/rejected) keys for this IP
-            # to free up slots for legitimate new users on shared IPs
-            cleaned = await db.delete_disabled_keys_by_ip(client_ip)
-            if cleaned > 0:
-                # Re-check after cleanup
-                discord_key_count = await db.count_discord_keys_by_ip(client_ip)
-            if discord_key_count >= max_keys:
-                return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
         
         # New user — store their Discord info in session and redirect to signup page
         # where they must answer the RP question before key generation
