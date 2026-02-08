@@ -398,12 +398,16 @@ async def check_and_update_rate_limits(
         )
     
     # Check daily token limit (tokens per day, not request count)
+    # Only check against *actual* tokens used so far — don't pre-reject based on
+    # estimated_tokens, because the estimate (input + max_output) is a worst-case
+    # upper bound that would block users who haven't used any tokens yet if they
+    # send a large context.  Actual usage is recorded after the request completes.
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     daily_tokens_used = await database.get_daily_tokens_used(
         key_record.id, today_start.isoformat(), today_end.isoformat()
     )
-    if daily_tokens_used + estimated_tokens > TOKENS_PER_DAY_LIMIT:
+    if daily_tokens_used >= TOKENS_PER_DAY_LIMIT:
         midnight_utc = today_end
         retry_after = int((midnight_utc - now).total_seconds())
         return RateLimitResult(
@@ -882,11 +886,20 @@ async def discord_callback(request: Request):
         # Abuse protection: limit Discord-authenticated keys per IP
         # Only count keys that were created via Discord OAuth (have a real discord_id),
         # not legacy IP-based keys (discord_id starts with "ip_")
+        # NOTE: Only count ENABLED keys — pending-approval (disabled) keys should not
+        # block new signups from shared IPs (VPNs, universities, corporate networks).
         client_ip = get_client_ip(request)
         max_keys = (settings.max_keys_per_ip if settings else 2)
         discord_key_count = await db.count_discord_keys_by_ip(client_ip)
         if discord_key_count >= max_keys:
-            return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
+            # Before rejecting, clean up any disabled (pending/rejected) keys for this IP
+            # to free up slots for legitimate new users on shared IPs
+            cleaned = await db.delete_disabled_keys_by_ip(client_ip)
+            if cleaned > 0:
+                # Re-check after cleanup
+                discord_key_count = await db.count_discord_keys_by_ip(client_ip)
+            if discord_key_count >= max_keys:
+                return RedirectResponse(url=f"/?error=too_many_keys&limit={max_keys}")
         
         # New user — store their Discord info in session and redirect to signup page
         # where they must answer the RP question before key generation
@@ -1101,11 +1114,18 @@ async def generate_key_endpoint(
     
     # Abuse protection: limit keys per IP
     max_keys = (settings.max_keys_per_ip if settings else 2)
-    if await db.count_keys_by_ip(client_ip) >= max_keys:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Maximum number of API keys per IP ({max_keys}) reached. Use an existing key or contact support."
-        )
+    key_count = await db.count_keys_by_ip(client_ip)
+    if key_count >= max_keys:
+        # Before rejecting, clean up any disabled (pending/rejected) keys for this IP
+        # to free up slots for legitimate new users on shared IPs
+        cleaned = await db.delete_disabled_keys_by_ip(client_ip)
+        if cleaned > 0:
+            key_count = await db.count_keys_by_ip(client_ip)
+        if key_count >= max_keys:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Maximum number of API keys per IP ({max_keys}) reached. Use an existing key or contact support."
+            )
     
     # 3. Generate new key for new user
     new_key = generate_api_key()

@@ -92,8 +92,12 @@ async function init() {
         let message;
         if (error === 'too_many_keys') {
             message = limit
-                ? `This IP already has the maximum number of API keys (${limit}). Use an existing key or contact support.`
-                : 'This IP already has the maximum number of API keys. Use an existing key or contact support.';
+                ? `This IP already has ${limit} active API keys. If you're on a shared network (VPN, university, etc.), please contact support to get access.`
+                : 'This IP already has the maximum number of active API keys. If you\'re on a shared network, please contact support.';
+        } else if (error === 'oauth_failed') {
+            message = 'Discord login failed. Please try again.';
+        } else if (error === 'no_discord_id') {
+            message = 'Could not retrieve your Discord account info. Please try again.';
         } else {
             message = urlParams.get('message') || error;
             message = `Login failed: ${message}`;
