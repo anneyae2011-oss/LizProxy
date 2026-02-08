@@ -341,7 +341,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 200px;
-    cursor: help;
+}
+
+.rp-clickable {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    transition: color 0.2s;
+}
+
+.rp-clickable:hover {
+    color: var(--ink-primary, #333);
+    text-decoration-style: solid;
 }
 
 /* Pending approval row highlight */
@@ -382,4 +393,40 @@
 
 [data-theme="dark"] .btn-approve {
     color: #81C784 !important;
+}
+
+/* Application Review Modal */
+.application-details {
+    padding: var(--space-md) 0;
+}
+
+.application-user {
+    margin-bottom: var(--space-md);
+    font-size: 0.95rem;
+}
+
+.application-text {
+    margin-bottom: var(--space-md);
+}
+
+.application-body {
+    background: var(--glass-bg, rgba(255,255,255,0.5));
+    border: 1px solid var(--glass-border, rgba(0,0,0,0.1));
+    border-radius: 8px;
+    padding: var(--space-md);
+    margin-top: var(--space-sm);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.application-actions {
+    display: flex;
+    gap: var(--space-sm);
+    justify-content: flex-end;
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--glass-border, rgba(0,0,0,0.1));
 }

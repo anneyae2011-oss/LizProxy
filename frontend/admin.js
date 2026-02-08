@@ -510,7 +510,7 @@ function displayKeys(keys) {
             <td class="key-prefix">${escapeHtml(key.key_prefix)}</td>
             <td class="discord-email">
                 ${escapeHtml(key.discord_email || key.ip_address || 'Unknown')}
-                ${key.rp_application ? `<div class="rp-info" title="${escapeAttr(key.rp_application)}">RP: ${escapeHtml(key.rp_application.length > 30 ? key.rp_application.substring(0, 30) + '...' : key.rp_application)}</div>` : ''}
+                ${key.rp_application ? `<div class="rp-info rp-clickable" onclick="event.stopPropagation(); showApplicationModal(${key.id}, ${escapeAttr(JSON.stringify(key.discord_email || key.ip_address || 'Unknown'))}, ${escapeAttr(JSON.stringify(key.rp_application))}, ${key.enabled})">RP: ${escapeHtml(key.rp_application.length > 50 ? key.rp_application.substring(0, 50) + '...' : key.rp_application)}</div>` : ''}
             </td>
             <td>
                 ${isPending ? `
@@ -746,6 +746,77 @@ document.addEventListener('click', (e) => {
     const modal = document.getElementById('analytics-modal');
     if (e.target === modal) {
         closeAnalyticsModal();
+    }
+});
+
+
+// ===================================
+// Application Review Modal
+// ===================================
+
+function showApplicationModal(keyId, userName, applicationText, isEnabled) {
+    const modal = document.getElementById('application-modal');
+    const content = document.getElementById('application-modal-content');
+    
+    content.innerHTML = `
+        <div class="modal-header">
+            <h2>RP Application</h2>
+            <button onclick="closeApplicationModal()" class="btn btn-ghost btn-sm">✕</button>
+        </div>
+        <div class="application-details">
+            <div class="application-user">
+                <strong>User:</strong> ${escapeHtml(userName)}
+            </div>
+            <div class="application-text">
+                <strong>Application:</strong>
+                <p class="application-body">${escapeHtml(applicationText)}</p>
+            </div>
+        </div>
+        <div class="application-actions">
+            ${!isEnabled ? `
+            <button onclick="approveApplication(${keyId})" class="btn btn-approve">
+                ✓ Accept
+            </button>
+            ` : `
+            <span class="status-badge enabled" style="padding: 8px 16px;">Already Approved</span>
+            `}
+            <button onclick="denyApplication(${keyId})" class="btn btn-danger">
+                ✕ Deny
+            </button>
+            <button onclick="closeApplicationModal()" class="btn btn-ghost">
+                Close
+            </button>
+        </div>
+    `;
+    
+    modal.classList.remove('hidden');
+}
+
+function closeApplicationModal() {
+    const modal = document.getElementById('application-modal');
+    modal.classList.add('hidden');
+}
+
+async function approveApplication(keyId) {
+    await toggleKey(keyId, false);  // false = currently disabled, so toggle enables it
+    closeApplicationModal();
+    logToConsole(`Approved application for key #${keyId}`, 'success');
+    showAdminStatus('Application approved — key enabled', 'success');
+}
+
+async function denyApplication(keyId) {
+    if (!confirm('Deny this application and delete the key?')) return;
+    await deleteKey(keyId);
+    closeApplicationModal();
+    logToConsole(`Denied application for key #${keyId}`, 'info');
+    showAdminStatus('Application denied — key deleted', 'info');
+}
+
+// Close application modal when clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('application-modal');
+    if (e.target === modal) {
+        closeApplicationModal();
     }
 });
 
