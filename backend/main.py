@@ -621,11 +621,14 @@ async def check_content_moderation(
     client_ip: str,
     model: str,
 ) -> Optional[dict]:
-    """Check messages for CSAM and other harmful content using VoidAI Omni AI.
+    """Check messages for CSAM content only using VoidAI Omni AI.
     
     This function sends the message content to VoidAI's moderation API before
-    the request is forwarded to the target API. If harmful content is detected,
-    it creates a flag in the database and returns the moderation result.
+    the request is forwarded to the target API. ONLY the sexual/minors (CSAM)
+    category is checked — all other categories (sexual, violence, hate,
+    harassment, self-harm) are intentionally ignored to avoid false positives.
+    
+    Each request is checked independently (no caching or deduplication).
     
     Args:
         messages: List of chat messages to check.
@@ -647,11 +650,8 @@ async def check_content_moderation(
     # Truncate for preview (first 500 chars)
     message_preview = combined_content[:500] if len(combined_content) > 500 else combined_content
     
-    # Hash the full content for deduplication
-    full_message_hash = hashlib.sha256(combined_content.encode()).hexdigest()
-    
     try:
-        # Call VoidAI Omni AI moderation endpoint
+        # Call VoidAI Omni AI moderation endpoint (fresh call every time, no caching)
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{VOIDAI_API_URL}/moderations",
@@ -678,97 +678,51 @@ async def check_content_moderation(
             
             moderation_result = result["results"][0]
             
-            if not moderation_result.get("flagged"):
-                return None
-            
-            # Content was flagged - determine severity and type
+            # We ONLY care about sexual/minors (CSAM). Ignore everything else.
             categories = moderation_result.get("categories", {})
             category_scores = moderation_result.get("category_scores", {})
             
-            # Determine the primary flag type and severity
-            flag_type = "unknown"
-            severity = "low"
-            max_score = 0.0
+            # Check if sexual/minors category is flagged
+            if not categories.get("sexual/minors"):
+                return None
             
-            # Minimum score thresholds to trust a category flag.
-            # The boolean flags from the moderation API fire at low confidence,
-            # causing false positives (e.g. "sexual/minors" triggers when ages
-            # ARE 18+ but are merely mentioned near sexual content).
-            # We require a meaningful score before acting on a flag.
-            CATEGORY_MIN_SCORE = 0.4  # General minimum to consider a flag real
-            CSAM_MIN_SCORE = 0.65     # Higher bar for sexual/minors to reduce false positives
+            csam_score = category_scores.get("sexual/minors", 0)
             
-            # Priority order for flag types (CSAM is highest priority)
-            priority_categories = [
-                ("sexual/minors", "csam"),
-                ("sexual", "sexual"),
-                ("violence/graphic", "violence"),
-                ("violence", "violence"),
-                ("hate/threatening", "hate"),
-                ("hate", "hate"),
-                ("harassment/threatening", "harassment"),
-                ("harassment", "harassment"),
-                ("self-harm/intent", "self_harm"),
-                ("self-harm/instructions", "self_harm"),
-                ("self-harm", "self_harm"),
-            ]
-            
-            for category_key, flag_name in priority_categories:
-                if categories.get(category_key):
-                    score = category_scores.get(category_key, 0)
-                    
-                    # Apply minimum score threshold — ignore low-confidence flags
-                    min_threshold = CSAM_MIN_SCORE if flag_name == "csam" else CATEGORY_MIN_SCORE
-                    if score < min_threshold:
-                        continue  # Skip this flag; score too low (likely false positive)
-                    
-                    if score > max_score:
-                        max_score = score
-                        flag_type = flag_name
-            
-            # If no category passed the score threshold, treat as not flagged
-            if flag_type == "unknown":
+            # Require a high confidence score to avoid false positives.
+            # The boolean flag from the moderation API fires at low confidence,
+            # e.g. when ages 18+ are merely mentioned near sexual content.
+            CSAM_MIN_SCORE = 0.65
+            if csam_score < CSAM_MIN_SCORE:
                 return None
             
             # Determine severity based on score
-            if max_score >= 0.9:
+            flag_type = "csam"
+            if csam_score >= 0.8:
                 severity = "critical"
-            elif max_score >= 0.7:
-                severity = "high"
-            elif max_score >= 0.4:
-                severity = "medium"
+            elif csam_score >= 0.65:
+                severity = "high"  # Flagged for admin review, NOT auto-blocked
             else:
                 severity = "low"
             
-            # CSAM is critical only at high confidence (>=0.8) to avoid
-            # false positives from age mentions near sexual content.
-            # Lower-confidence CSAM flags are still recorded for admin review
-            # but won't auto-block the request.
-            if flag_type == "csam":
-                if max_score >= 0.8:
-                    severity = "critical"
-                elif max_score >= 0.65:
-                    severity = "high"  # Flagged for review, NOT auto-blocked
-            
-            # Create flag in database
+            # Create flag in database (no hash-based dedup — every flag is independent)
             flag_id = await db.create_content_flag(
                 api_key_id=key_record.id,
                 flag_type=flag_type,
                 severity=severity,
                 message_preview=message_preview,
-                full_message_hash=full_message_hash,
+                full_message_hash="",  # No deduplication hash
                 model=model,
                 ip_address=client_ip,
             )
             
-            print(f"[Moderation] Content flagged: type={flag_type}, severity={severity}, key={key_record.key_prefix}, flag_id={flag_id}")
+            print(f"[Moderation] CSAM content flagged: severity={severity}, score={csam_score:.3f}, key={key_record.key_prefix}, flag_id={flag_id}")
             
             return {
                 "flagged": True,
                 "flag_id": flag_id,
                 "flag_type": flag_type,
                 "severity": severity,
-                "categories": categories,
+                "csam_score": csam_score,
             }
             
     except httpx.TimeoutException:
@@ -1581,7 +1535,7 @@ async def proxy_chat_completions(
     if not rate_result.allowed:
         return create_rate_limit_response(rate_result)
     
-    # CSAM/Content moderation check BEFORE forwarding to provider
+    # CSAM-only moderation check BEFORE forwarding to provider
     moderation_result = await check_content_moderation(
         messages=chat_request.messages,
         key_record=key_record,
