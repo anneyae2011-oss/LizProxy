@@ -690,6 +690,14 @@ async def check_content_moderation(
             severity = "low"
             max_score = 0.0
             
+            # Minimum score thresholds to trust a category flag.
+            # The boolean flags from the moderation API fire at low confidence,
+            # causing false positives (e.g. "sexual/minors" triggers when ages
+            # ARE 18+ but are merely mentioned near sexual content).
+            # We require a meaningful score before acting on a flag.
+            CATEGORY_MIN_SCORE = 0.4  # General minimum to consider a flag real
+            CSAM_MIN_SCORE = 0.65     # Higher bar for sexual/minors to reduce false positives
+            
             # Priority order for flag types (CSAM is highest priority)
             priority_categories = [
                 ("sexual/minors", "csam"),
@@ -708,9 +716,19 @@ async def check_content_moderation(
             for category_key, flag_name in priority_categories:
                 if categories.get(category_key):
                     score = category_scores.get(category_key, 0)
+                    
+                    # Apply minimum score threshold — ignore low-confidence flags
+                    min_threshold = CSAM_MIN_SCORE if flag_name == "csam" else CATEGORY_MIN_SCORE
+                    if score < min_threshold:
+                        continue  # Skip this flag; score too low (likely false positive)
+                    
                     if score > max_score:
                         max_score = score
                         flag_type = flag_name
+            
+            # If no category passed the score threshold, treat as not flagged
+            if flag_type == "unknown":
+                return None
             
             # Determine severity based on score
             if max_score >= 0.9:
@@ -722,9 +740,15 @@ async def check_content_moderation(
             else:
                 severity = "low"
             
-            # CSAM is always critical
+            # CSAM is critical only at high confidence (>=0.8) to avoid
+            # false positives from age mentions near sexual content.
+            # Lower-confidence CSAM flags are still recorded for admin review
+            # but won't auto-block the request.
             if flag_type == "csam":
-                severity = "critical"
+                if max_score >= 0.8:
+                    severity = "critical"
+                elif max_score >= 0.65:
+                    severity = "high"  # Flagged for review, NOT auto-blocked
             
             # Create flag in database
             flag_id = await db.create_content_flag(
