@@ -1101,6 +1101,9 @@ async function loadFlags(silent = false) {
     
     if (!container || !section) return;
     
+    // Always show the flags section so admin can see it
+    section.classList.remove('hidden');
+    
     if (!silent) {
         container.innerHTML = '<div class="loading-cell">Loading...</div>';
     }
@@ -1112,16 +1115,9 @@ async function loadFlags(silent = false) {
             const flags = await response.json();
             displayFlags(flags);
             
-            // Show section if there are flags
-            if (flags.length > 0 || showReviewed) {
-                section.classList.remove('hidden');
-            } else {
-                section.classList.add('hidden');
-            }
-            
             if (countEl) {
                 const unreviewedCount = flags.filter(f => !f.reviewed).length;
-                countEl.textContent = unreviewedCount > 0 ? `${unreviewedCount} unreviewed` : '';
+                countEl.textContent = unreviewedCount > 0 ? `${unreviewedCount} unreviewed` : 'None';
             }
         } else if (response.status === 401) {
             logout();
@@ -1169,7 +1165,7 @@ function displayFlags(flags) {
                     <strong>Model:</strong> ${escapeHtml(flag.model)}
                 </div>
                 <div class="flag-preview">
-                    <strong>Content Preview:</strong>
+                    <strong>Flagged Content:</strong>
                     <pre class="flag-content-preview">${escapeHtml(flag.message_preview)}</pre>
                 </div>
             </div>
@@ -1180,8 +1176,8 @@ function displayFlags(flags) {
                 </div>
             ` : `
                 <div class="flag-card-actions">
-                    <button onclick="flagAction(${flag.id}, 'ban_and_disable')" class="btn btn-danger btn-sm" title="Ban IP and disable key">
-                        🚫 Ban & Disable
+                    <button onclick="flagAction(${flag.id}, 'ban_and_disable')" class="btn btn-ban-user" title="Ban this user's IP and disable their key">
+                        🚫 Ban User
                     </button>
                     <button onclick="flagAction(${flag.id}, 'ban_ip')" class="btn btn-warning btn-sm" title="Ban IP only">
                         Ban IP
