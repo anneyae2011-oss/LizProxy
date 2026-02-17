@@ -12,6 +12,7 @@ const REFRESH_INTERVAL = 3000; // 3 seconds
 let adminPassword = null;
 let refreshInterval = null;
 let consoleMessages = [];
+let currentFlags = []; // Store current flags for bulk actions
 const MAX_CONSOLE_MESSAGES = 50;
 
 // DOM Elements
@@ -53,14 +54,14 @@ const analyticsContent = document.getElementById('analytics-content');
  */
 function init() {
     const storedPassword = sessionStorage.getItem(ADMIN_PASSWORD_KEY);
-    
+
     if (storedPassword) {
         adminPassword = storedPassword;
         verifyAndLoadDashboard();
     } else {
         showPasswordModal();
     }
-    
+
     // Start UTC time update
     updateUtcTime();
     setInterval(updateUtcTime, 1000);
@@ -83,12 +84,12 @@ function updateUtcTime() {
 function logToConsole(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
     consoleMessages.unshift({ timestamp, message, type });
-    
+
     // Keep only last N messages
     if (consoleMessages.length > MAX_CONSOLE_MESSAGES) {
         consoleMessages = consoleMessages.slice(0, MAX_CONSOLE_MESSAGES);
     }
-    
+
     renderConsole();
 }
 
@@ -97,7 +98,7 @@ function logToConsole(message, type = 'info') {
  */
 function renderConsole() {
     if (!consoleLog) return;
-    
+
     consoleLog.innerHTML = consoleMessages.map(msg => `
         <div class="console-entry ${msg.type}">
             <span class="timestamp">[${msg.timestamp}]</span>
@@ -128,18 +129,18 @@ function showDashboard() {
  */
 async function handlePasswordSubmit(event) {
     event.preventDefault();
-    
+
     const passwordInput = document.getElementById('admin-password');
     const password = passwordInput.value;
-    
+
     if (!password) {
         showPasswordError('Please enter a password');
         return;
     }
-    
+
     adminPassword = password;
     const isValid = await verifyPassword();
-    
+
     if (isValid) {
         sessionStorage.setItem(ADMIN_PASSWORD_KEY, password);
         hidePasswordError();
@@ -173,7 +174,7 @@ async function verifyPassword() {
  */
 async function verifyAndLoadDashboard() {
     const isValid = await verifyPassword();
-    
+
     if (isValid) {
         showDashboard();
         loadAllData();
@@ -260,10 +261,10 @@ async function adminFetch(url, options = {}) {
         'Cache-Control': 'no-cache',
         ...options.headers
     };
-    
+
     try {
-        const response = await fetch(url, { 
-            ...options, 
+        const response = await fetch(url, {
+            ...options,
             headers,
             cache: 'no-store'  // Prevent browser caching
         });
@@ -283,7 +284,7 @@ async function adminFetch(url, options = {}) {
 async function loadConfig() {
     try {
         const response = await adminFetch('/admin/config');
-        
+
         if (response.ok) {
             const data = await response.json();
             targetUrlInput.value = data.target_api_url || '';
@@ -305,29 +306,29 @@ async function loadConfig() {
 
 async function saveConfig(event) {
     event.preventDefault();
-    
+
     const targetUrl = targetUrlInput.value;
     const targetKey = targetKeyInput.value;
     const maxContext = parseInt(maxContextInput.value, 10);
     const maxOutputTokens = maxOutputTokensInput ? parseInt(maxOutputTokensInput.value, 10) : 4096;
-    
+
     const payload = {
         target_api_url: targetUrl,
         max_context: maxContext,
         max_output_tokens: Math.max(1, Math.min(128000, maxOutputTokens))
     };
-    
+
     if (targetKey) {
         payload.target_api_key = targetKey;
     }
-    
+
     try {
         const response = await adminFetch('/admin/config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        
+
         if (response.ok) {
             logToConsole('Configuration saved', 'success');
             showAdminStatus('Configuration saved successfully', 'success');
@@ -353,7 +354,7 @@ async function saveConfig(event) {
 async function loadRequestLogs(silent = false) {
     try {
         const response = await adminFetch('/admin/request-logs?limit=40');
-        
+
         if (response.ok) {
             const logs = await response.json();
             displayRequestLogs(logs);
@@ -371,26 +372,26 @@ async function loadRequestLogs(silent = false) {
 
 function displayRequestLogs(logs) {
     if (!requestLogsEl) return;
-    
+
     if (!logs || logs.length === 0) {
         requestLogsEl.innerHTML = '<div class="loading-cell">No requests yet</div>';
         return;
     }
-    
+
     // Filter out "models" requests (these are just model list fetches, not actual API calls)
     const filteredLogs = logs.filter(log => log.model !== 'models');
-    
+
     if (filteredLogs.length === 0) {
         requestLogsEl.innerHTML = '<div class="loading-cell">No requests yet</div>';
         return;
     }
-    
+
     // Update count if element exists
     const countEl = document.getElementById('request-count');
     if (countEl) {
         countEl.textContent = `${filteredLogs.length} recent`;
     }
-    
+
     requestLogsEl.innerHTML = filteredLogs.map(log => `
         <div class="log-entry ${log.success ? 'success' : 'error'}">
             <div class="log-header">
@@ -409,7 +410,7 @@ function displayRequestLogs(logs) {
 async function loadTopRequests(silent = false) {
     try {
         const response = await adminFetch('/admin/top-requests?limit=3');
-        
+
         if (response.ok) {
             const logs = await response.json();
             displayTopRequests(logs);
@@ -427,20 +428,20 @@ async function loadTopRequests(silent = false) {
 
 function displayTopRequests(logs) {
     if (!topRequestsEl) return;
-    
+
     if (!logs || logs.length === 0) {
         topRequestsEl.innerHTML = '<div class="loading-cell">No requests yet</div>';
         return;
     }
-    
+
     // Filter out "models" requests
     const filteredLogs = logs.filter(log => log.model !== 'models');
-    
+
     if (filteredLogs.length === 0) {
         topRequestsEl.innerHTML = '<div class="loading-cell">No requests yet</div>';
         return;
     }
-    
+
     topRequestsEl.innerHTML = filteredLogs.map((log, i) => `
         <div class="log-entry success">
             <div class="log-header">
@@ -464,10 +465,10 @@ async function loadKeys(silent = false) {
         keysTbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Loading...</td></tr>';
     }
     noKeysMessage.classList.add('hidden');
-    
+
     try {
         const response = await adminFetch('/admin/keys');
-        
+
         if (response.ok) {
             const keys = await response.json();
             displayKeys(keys);
@@ -495,16 +496,16 @@ function displayKeys(keys) {
         displayPendingApplications([]);
         return;
     }
-    
+
     noKeysMessage.classList.add('hidden');
-    
+
     // Separate pending applications from active keys
     const pendingKeys = keys.filter(k => !k.enabled && k.rp_application);
     const activeKeys = keys.filter(k => k.enabled || !k.rp_application);
-    
+
     // Render pending applications in their own section
     displayPendingApplications(pendingKeys);
-    
+
     // Render active/non-pending keys in the table
     if (activeKeys.length === 0) {
         keysTbody.innerHTML = '';
@@ -558,17 +559,17 @@ function displayPendingApplications(pendingKeys) {
     const section = document.getElementById('pending-section');
     const container = document.getElementById('pending-applications');
     const countEl = document.getElementById('pending-count');
-    
+
     if (!section || !container) return;
-    
+
     if (!pendingKeys || pendingKeys.length === 0) {
         section.classList.add('hidden');
         return;
     }
-    
+
     section.classList.remove('hidden');
     if (countEl) countEl.textContent = `${pendingKeys.length} pending`;
-    
+
     container.innerHTML = pendingKeys.map(key => `
         <div class="pending-card" data-key-id="${key.id}">
             <div class="pending-card-header">
@@ -624,7 +625,7 @@ async function setBypassIp(keyId, bypass) {
 async function toggleKey(keyId, currentlyEnabled) {
     try {
         const response = await adminFetch(`/admin/keys/${keyId}/toggle`, { method: 'PUT' });
-        
+
         if (response.ok) {
             logToConsole(`Key ${currentlyEnabled ? 'disabled' : 'enabled'}`, 'success');
             showAdminStatus(`Key ${currentlyEnabled ? 'disabled' : 'enabled'} successfully`, 'success');
@@ -644,10 +645,10 @@ async function toggleKey(keyId, currentlyEnabled) {
 
 async function deleteKey(keyId) {
     if (!confirm('Are you sure you want to delete this API key?')) return;
-    
+
     try {
         const response = await adminFetch(`/admin/keys/${keyId}`, { method: 'DELETE' });
-        
+
         if (response.ok) {
             logToConsole('Key deleted', 'success');
             showAdminStatus('Key deleted successfully', 'success');
@@ -673,13 +674,13 @@ async function deleteKey(keyId) {
 async function showKeyAnalytics(keyId) {
     const modal = document.getElementById('analytics-modal');
     const content = document.getElementById('analytics-content');
-    
+
     modal.classList.remove('hidden');
     content.innerHTML = '<div class="loading-cell">Loading analytics...</div>';
-    
+
     try {
         const response = await adminFetch(`/admin/keys/${keyId}/analytics`);
-        
+
         if (response.ok) {
             const data = await response.json();
             displayKeyAnalytics(data);
@@ -700,11 +701,11 @@ async function showKeyAnalytics(keyId) {
 
 function displayKeyAnalytics(data) {
     const content = document.getElementById('analytics-content');
-    
-    const successRate = data.total_requests > 0 
-        ? Math.round((data.successful_requests / data.total_requests) * 100) 
+
+    const successRate = data.total_requests > 0
+        ? Math.round((data.successful_requests / data.total_requests) * 100)
         : 0;
-    
+
     content.innerHTML = `
         <!-- Key Info Block -->
         <div class="analytics-block key-info-block">
@@ -816,10 +817,10 @@ async function loadBannedIps(silent = false) {
         bannedTbody.innerHTML = '<tr><td colspan="4" class="loading-cell">Loading...</td></tr>';
     }
     noBannedMessage.classList.add('hidden');
-    
+
     try {
         const response = await adminFetch('/admin/banned-ips');
-        
+
         if (response.ok) {
             const ips = await response.json();
             displayBannedIps(ips);
@@ -843,7 +844,7 @@ function displayBannedIps(ips) {
         noBannedMessage.classList.remove('hidden');
         return;
     }
-    
+
     noBannedMessage.classList.add('hidden');
     bannedTbody.innerHTML = ips.map(ip => `
         <tr>
@@ -865,22 +866,22 @@ function displayBannedIps(ips) {
 
 async function banIp(event) {
     event.preventDefault();
-    
+
     const ipAddress = banIpInput.value.trim();
     const reason = banReasonInput.value.trim();
-    
+
     if (!ipAddress) {
         showAdminStatus('Please enter an IP address', 'error');
         return;
     }
-    
+
     try {
         const response = await adminFetch('/admin/ban-ip', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip_address: ipAddress, reason: reason || null })
         });
-        
+
         if (response.ok) {
             logToConsole(`Banned IP: ${ipAddress}`, 'success');
             showAdminStatus(`IP ${ipAddress} has been banned`, 'success');
@@ -902,12 +903,12 @@ async function banIp(event) {
 
 async function unbanIp(ipAddress) {
     if (!confirm(`Are you sure you want to unban ${ipAddress}?`)) return;
-    
+
     try {
         const response = await adminFetch(`/admin/ban-ip/${encodeURIComponent(ipAddress)}`, {
             method: 'DELETE'
         });
-        
+
         if (response.ok) {
             logToConsole(`Unbanned IP: ${ipAddress}`, 'success');
             showAdminStatus(`IP ${ipAddress} has been unbanned`, 'success');
@@ -932,10 +933,10 @@ async function unbanIp(ipAddress) {
 
 async function resetAllRpm() {
     if (!confirm('Are you sure you want to reset RPM counters for all keys?')) return;
-    
+
     try {
         const response = await adminFetch('/admin/reset-all-rpm', { method: 'POST' });
-        
+
         if (response.ok) {
             const data = await response.json();
             logToConsole(`Reset RPM for ${data.count} keys`, 'success');
@@ -955,10 +956,10 @@ async function resetAllRpm() {
 
 async function resetAllRpd() {
     if (!confirm('Are you sure you want to reset RPD counters for all keys?')) return;
-    
+
     try {
         const response = await adminFetch('/admin/reset-all-rpd', { method: 'POST' });
-        
+
         if (response.ok) {
             const data = await response.json();
             logToConsole(`Reset RPD for ${data.count} keys`, 'success');
@@ -980,10 +981,10 @@ async function resetAllRpd() {
 async function purgeAllKeys() {
     if (!confirm('⚠️ WARNING: This will DELETE ALL API keys and usage logs!\n\nEvery user will need to re-register via Discord.\n\nAre you absolutely sure?')) return;
     if (!confirm('FINAL CONFIRMATION: Purge ALL keys? This cannot be undone.')) return;
-    
+
     try {
         const response = await adminFetch('/admin/purge-all-keys', { method: 'POST' });
-        
+
         if (response.ok) {
             const data = await response.json();
             logToConsole(`Purged ${data.count} keys and all usage logs`, 'success');
@@ -1008,11 +1009,11 @@ async function purgeAllKeys() {
 
 function showAdminStatus(message, type = 'info') {
     if (!adminStatus) return;
-    
+
     adminStatus.textContent = message;
     adminStatus.className = `status-message ${type}`;
     adminStatus.classList.remove('hidden');
-    
+
     // Auto-hide after 5 seconds
     setTimeout(() => {
         adminStatus.classList.add('hidden');
@@ -1075,7 +1076,7 @@ function toggleTheme() {
     const html = document.documentElement;
     const currentTheme = html.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    
+
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
 }
@@ -1098,23 +1099,24 @@ async function loadFlags(silent = false) {
     const noFlagsMessage = document.getElementById('no-flags-message');
     const countEl = document.getElementById('flags-count');
     const showReviewed = document.getElementById('show-reviewed-flags')?.checked || false;
-    
+
     if (!container || !section) return;
-    
+
     // Always show the flags section so admin can see it
     section.classList.remove('hidden');
-    
+
     if (!silent) {
         container.innerHTML = '<div class="loading-cell">Loading...</div>';
     }
-    
+
     try {
         const response = await adminFetch(`/admin/flags?include_reviewed=${showReviewed}`);
-        
+
         if (response.ok) {
             const flags = await response.json();
+            currentFlags = flags; // Save for bulk actions
             displayFlags(flags);
-            
+
             if (countEl) {
                 const unreviewedCount = flags.filter(f => !f.reviewed).length;
                 countEl.textContent = unreviewedCount > 0 ? `${unreviewedCount} unreviewed` : 'None';
@@ -1134,17 +1136,17 @@ async function loadFlags(silent = false) {
 function displayFlags(flags) {
     const container = document.getElementById('flags-container');
     const noFlagsMessage = document.getElementById('no-flags-message');
-    
+
     if (!container) return;
-    
+
     if (!flags || flags.length === 0) {
         container.innerHTML = '';
         if (noFlagsMessage) noFlagsMessage.classList.remove('hidden');
         return;
     }
-    
+
     if (noFlagsMessage) noFlagsMessage.classList.add('hidden');
-    
+
     container.innerHTML = flags.map(flag => `
         <div class="flag-card ${flag.reviewed ? 'reviewed' : ''} severity-${flag.severity}" data-flag-id="${flag.id}">
             <div class="flag-card-header">
@@ -1166,7 +1168,7 @@ function displayFlags(flags) {
                 </div>
                 <div class="flag-preview">
                     <strong>Flagged Content:</strong>
-                    <pre class="flag-content-preview">${escapeHtml(flag.message_preview)}</pre>
+                    <pre class="flag-content-preview">${escapeHtml(flag.message_preview) || '<span class="empty-preview">(No flagged text content)</span>'}</pre>
                 </div>
             </div>
             ${flag.reviewed ? `
@@ -1202,16 +1204,16 @@ async function flagAction(flagId, action) {
         'dismiss': 'dismiss this flag without action',
         'warn': 'mark as warned'
     };
-    
+
     if (!confirm(`Are you sure you want to ${actionLabels[action] || action}?`)) return;
-    
+
     try {
         const response = await adminFetch(`/admin/flags/${flagId}/action`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action })
         });
-        
+
         if (response.ok) {
             const data = await response.json();
             logToConsole(`Flag action: ${data.message}`, 'success');
@@ -1238,6 +1240,58 @@ async function flagAction(flagId, action) {
     } catch (error) {
         logToConsole(`Flag action error: ${error.message}`, 'error');
         showAdminStatus('Network error processing flag action', 'error');
+    }
+}
+
+async function bulkFlagAction(action) {
+    const unreviewed = currentFlags.filter(f => !f.reviewed);
+    if (unreviewed.length === 0) {
+        showAdminStatus('No unreviewed flags to act on', 'info');
+        return;
+    }
+
+    const actionLabels = {
+        'ban_ip': 'ban ALL unreviewed IPs',
+        'disable_key': 'disable ALL unreviewed API keys',
+        'ban_and_disable': 'ban and disable ALL unreviewed users',
+        'dismiss': 'dismiss ALL unreviewed flags'
+    };
+
+    if (!confirm(`Are you sure you want to ${actionLabels[action] || action} (${unreviewed.length} total)?`)) return;
+
+    const flagIds = unreviewed.map(f => f.id);
+
+    try {
+        logToConsole(`Bulk action '${action}' started for ${flagIds.length} flags...`, 'info');
+
+        const response = await adminFetch('/admin/flags/bulk-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                flag_ids: flagIds,
+                action: action,
+                reason: `Bulk ${action} from Admin Dashboard`
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            logToConsole(data.message, 'success');
+            showAdminStatus(data.message, 'success');
+            await loadFlags();
+            // Refresh other lists if needed
+            if (action.includes('ban')) await loadBannedIps();
+            if (action.includes('disable') || action.includes('ban')) await loadKeys();
+        } else if (response.status === 401) {
+            logout();
+        } else {
+            const data = await response.json().catch(() => ({}));
+            logToConsole(`Bulk action failed: ${data.message || 'Unknown error'}`, 'error');
+            showAdminStatus(data.message || 'Failed to process bulk action', 'error');
+        }
+    } catch (error) {
+        logToConsole(`Bulk action error: ${error.message}`, 'error');
+        showAdminStatus('Network error processing bulk action', 'error');
     }
 }
 

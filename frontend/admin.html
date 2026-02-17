@@ -125,6 +125,14 @@
                     <input type="checkbox" id="show-reviewed-flags" onchange="loadFlags()">
                     Show reviewed flags
                 </label>
+                <div class="bulk-actions" id="flags-bulk-actions">
+                    <button onclick="bulkFlagAction('ban_and_disable')" class="btn btn-ban-user btn-sm">
+                        🚫 Ban All Check
+                    </button>
+                    <button onclick="bulkFlagAction('dismiss')" class="btn btn-ghost btn-sm">
+                        Dismiss All
+                    </button>
+                </div>
             </div>
             <div id="flags-container" class="flags-cards-grid">
                 <div class="loading-cell">Loading...</div>

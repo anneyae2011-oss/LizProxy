@@ -198,6 +198,11 @@ class Database(ABC):
         pass
     
     @abstractmethod
+    async def set_key_enabled(self, key_id: int, enabled: bool) -> bool:
+        """Set key enabled state explicitly. Returns True if key existed."""
+        pass
+    
+    @abstractmethod
     async def update_key_ip(self, key_id: int, new_ip: str) -> None:
         pass
     
@@ -539,6 +544,12 @@ class SQLiteDatabase(Database):
     async def toggle_key(self, key_id: int) -> bool:
         conn = await self._get_connection()
         cursor = await conn.execute("UPDATE api_keys SET enabled = NOT enabled WHERE id = ?", (key_id,))
+        await conn.commit()
+        return cursor.rowcount > 0
+
+    async def set_key_enabled(self, key_id: int, enabled: bool) -> bool:
+        conn = await self._get_connection()
+        cursor = await conn.execute("UPDATE api_keys SET enabled = ? WHERE id = ?", (1 if enabled else 0, key_id))
         await conn.commit()
         return cursor.rowcount > 0
 
@@ -1103,6 +1114,12 @@ class PostgreSQLDatabase(Database):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             result = await conn.execute("UPDATE api_keys SET enabled = NOT enabled WHERE id = $1", key_id)
+            return result == "UPDATE 1"
+
+    async def set_key_enabled(self, key_id: int, enabled: bool) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("UPDATE api_keys SET enabled = $1 WHERE id = $2", enabled, key_id)
             return result == "UPDATE 1"
 
     async def update_key_ip(self, key_id: int, new_ip: str) -> None:

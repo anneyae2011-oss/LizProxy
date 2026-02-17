@@ -228,7 +228,14 @@ class ContentFlagResponse(BaseModel):
 
 class FlagActionRequest(BaseModel):
     """Request model for taking action on a flag."""
-    action: str  # 'ban_ip', 'disable_key', 'dismiss', 'warn'
+    action: str  # 'ban_ip', 'disable_key', 'dismiss', 'warn', 'ban_and_disable'
+    reason: Optional[str] = None
+
+
+class FlagBulkActionRequest(BaseModel):
+    """Request model for bulk actions on multiple flags."""
+    flag_ids: list[int]
+    action: str  # 'ban_ip', 'disable_key', 'dismiss', 'ban_and_disable'
     reason: Optional[str] = None
 
 
@@ -642,13 +649,21 @@ async def check_content_moderation(
     if not MODERATION_ENABLED or not VOIDAI_API_KEY:
         return None
     
-    # Combine all message content for moderation
-    combined_content = "\n".join([
-        f"{msg.role}: {msg.content}" for msg in messages
-    ])
+    # All content for the actual moderation API call
+    combined_content = "\n".join([f"{msg.role}: {msg.content}" for msg in messages])
+
+    # Combine last few messages for a better context in the preview
+    # Showing the last 3 messages provides better context than just the first 500 chars of everything
+    preview_msgs = messages[-3:] if len(messages) > 3 else messages
+    message_preview = "\n---\n".join([f"{msg.role.upper()}: {msg.content}" for msg in preview_msgs])
     
-    # Truncate for preview (first 500 chars)
-    message_preview = combined_content[:500] if len(combined_content) > 500 else combined_content
+    # Fallback if preview is somehow empty but flagged
+    if not message_preview.strip():
+        message_preview = f"(Flagged empty content or malformed messages: {len(messages)} msgs)"
+    
+    # Still truncate if extremely long
+    if len(message_preview) > 1000:
+        message_preview = message_preview[:1000] + "..."
     
     try:
         # Call VoidAI Omni AI moderation endpoint (fresh call every time, no caching)
@@ -2564,14 +2579,14 @@ async def admin_flag_action(
     
     elif action == "disable_key":
         # Disable the API key
-        await db.toggle_key(flag.api_key_id)
+        await db.set_key_enabled(flag.api_key_id, enabled=False)
         await db.mark_flag_reviewed(flag_id, f"disabled_key: {flag.key_prefix}")
         return {"message": f"API key {flag.key_prefix} has been disabled", "action": "disable_key"}
     
     elif action == "ban_and_disable":
         # Both ban IP and disable key
         await db.ban_ip(flag.ip_address, reason)
-        await db.toggle_key(flag.api_key_id)
+        await db.set_key_enabled(flag.api_key_id, enabled=False)
         await db.mark_flag_reviewed(flag_id, f"banned_ip_and_disabled_key: {flag.ip_address}, {flag.key_prefix}")
         return {"message": f"IP {flag.ip_address} banned and key {flag.key_prefix} disabled", "action": "ban_and_disable"}
     
@@ -2587,6 +2602,67 @@ async def admin_flag_action(
     
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+
+@app.post(
+    "/admin/flags/bulk-action",
+    responses={401: {"model": ErrorResponse}},
+)
+async def admin_bulk_flag_action(
+    action_request: FlagBulkActionRequest,
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Take action on multiple content flags at once.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Args:
+        action_request: The IDs to act on and the action to take.
+    
+    Returns:
+        Success summary.
+    """
+    flag_ids = action_request.flag_ids
+    action = action_request.action
+    base_reason = action_request.reason or f"Bulk action: {action}"
+    
+    success_count = 0
+    errors = []
+    
+    for flag_id in flag_ids:
+        try:
+            flag = await db.get_flag_by_id(flag_id)
+            if not flag:
+                errors.append(f"Flag #{flag_id} not found")
+                continue
+            
+            reason = f"{base_reason} (Flag #{flag_id}: {flag.flag_type})"
+            
+            if action == "ban_ip":
+                await db.ban_ip(flag.ip_address, reason)
+                await db.mark_flag_reviewed(flag_id, f"bulk_banned_ip: {flag.ip_address}")
+            elif action == "disable_key":
+                await db.set_key_enabled(flag.api_key_id, enabled=False)
+                await db.mark_flag_reviewed(flag_id, f"bulk_disabled_key: {flag.key_prefix}")
+            elif action == "ban_and_disable":
+                await db.ban_ip(flag.ip_address, reason)
+                await db.set_key_enabled(flag.api_key_id, enabled=False)
+                await db.mark_flag_reviewed(flag_id, f"bulk_banned_ip_and_disabled_key: {flag.ip_address}, {flag.key_prefix}")
+            elif action == "dismiss":
+                await db.mark_flag_reviewed(flag_id, "bulk_dismissed")
+            else:
+                raise ValueError(f"Unknown action: {action}")
+            
+            success_count += 1
+        except Exception as e:
+            errors.append(f"Error on flag #{flag_id}: {str(e)}")
+            
+    return {
+        "message": f"Bulk action '{action}' completed: {success_count} success, {len(errors)} errors",
+        "success_count": success_count,
+        "error_count": len(errors),
+        "errors": errors[:10] # Return first 10 errors
+    }
 
 
 @app.get(
