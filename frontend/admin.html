@@ -1,25 +1,29 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Liz's Proxy - Admin Dashboard">
     <title>Liz's Proxy — Admin</title>
-    
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Quicksand:wght@300;400;500&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Quicksand:wght@300;400;500&display=swap"
+        rel="stylesheet">
+
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css?v=20260208a">
-    <link rel="stylesheet" href="/static/admin.css?v=20260208a">
+    <link rel="stylesheet" href="/static/style.css?v=20260217a">
+    <link rel="stylesheet" href="/static/admin.css?v=20260217a">
 </head>
+
 <body>
     <!-- Background with Vignette -->
     <div class="background-image"></div>
     <div class="vignette-overlay"></div>
-    
+
     <!-- Floating Particles -->
     <div class="particles-container">
         <div class="particle"></div>
@@ -33,13 +37,13 @@
         <div class="particle"></div>
         <div class="particle"></div>
     </div>
-    
+
     <!-- Theme Toggle -->
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
         <span class="icon-sun">☀️</span>
         <span class="icon-moon">🌙</span>
     </button>
-    
+
     <!-- Navigation Bar -->
     <nav class="navbar">
         <a href="/" class="nav-brand">✧ Liz's Proxy ✧</a>
@@ -48,7 +52,7 @@
             <a href="/admin" class="nav-link">Admin</a>
         </div>
     </nav>
-    
+
     <!-- Password Modal -->
     <div id="password-modal" class="modal">
         <div class="modal-content card">
@@ -57,8 +61,8 @@
             <form id="password-form" onsubmit="handlePasswordSubmit(event)">
                 <div class="form-group">
                     <label for="admin-password">Password</label>
-                    <input type="password" id="admin-password" name="password" required 
-                           placeholder="Enter password..." autocomplete="current-password">
+                    <input type="password" id="admin-password" name="password" required placeholder="Enter password..."
+                        autocomplete="current-password">
                 </div>
                 <div id="password-error" class="error-message hidden"></div>
                 <button type="submit" class="btn btn-primary btn-full">
@@ -169,48 +173,49 @@
                 <h2>Proxy Configuration</h2>
                 <button onclick="loadConfig()" class="btn btn-ghost btn-sm">Refresh</button>
             </div>
-            
+
             <form id="config-form" onsubmit="saveConfig(event)">
                 <div class="form-row">
                     <div class="form-group">
                         <label for="target-url">Target API URL</label>
-                        <input type="url" id="target-url" name="target_api_url" 
-                               placeholder="https://api.openai.com/v1" required>
+                        <input type="url" id="target-url" name="target_api_url" placeholder="https://api.openai.com/v1"
+                            required>
                         <small class="form-hint">The upstream API endpoint to proxy requests to</small>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="target-key">Target API Key</label>
-                        <input type="password" id="target-key" name="target_api_key" 
-                               placeholder="sk-...">
+                        <input type="password" id="target-key" name="target_api_key" placeholder="sk-...">
                         <small class="form-hint">Your API key for the target service (stored securely)</small>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="max-context">Max Context Tokens</label>
-                        <input type="number" id="max-context" name="max_context" 
-                               min="1000" max="1000000" value="128000" required>
+                        <input type="number" id="max-context" name="max_context" min="1000" max="1000000" value="128000"
+                            required>
                         <small class="form-hint">Maximum input token limit per request (default: 128,000)</small>
                     </div>
                 </div>
-                
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="max-output-tokens">Max Output Tokens</label>
-                        <input type="number" id="max-output-tokens" name="max_output_tokens" 
-                               min="1" max="128000" value="4096" required>
-                        <small class="form-hint">Maximum completion tokens per response (stops long outputs draining quota, default: 4,096)</small>
+                        <input type="number" id="max-output-tokens" name="max_output_tokens" min="1" max="128000"
+                            value="4096" required>
+                        <small class="form-hint">Maximum completion tokens per response (stops long outputs draining
+                            quota, default: 4,096)</small>
                     </div>
                 </div>
-                
+
                 <p class="form-hint" style="margin-top: var(--space-sm);">
-                    Abuse protection: max <span id="max-keys-per-ip">—</span> API key(s) per IP (set via <code>MAX_KEYS_PER_IP</code> env)
+                    Abuse protection: max <span id="max-keys-per-ip">—</span> API key(s) per IP (set via
+                    <code>MAX_KEYS_PER_IP</code> env)
                 </p>
-                
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Configuration</button>
                 </div>
@@ -222,7 +227,7 @@
             <div class="section-header">
                 <h2>Rate Limit Management</h2>
             </div>
-            
+
             <div class="reset-section">
                 <div class="reset-item">
                     <h4>Reset All RPM</h4>
@@ -240,7 +245,7 @@
                     <button onclick="purgeAllKeys()" class="btn btn-danger btn-sm">Purge All Keys</button>
                 </div>
             </div>
-            
+
             <p class="form-hint" style="text-align: center; margin-top: var(--space-sm);">
                 RPM resets automatically every minute. RPD resets at midnight UTC.<br>
                 Current UTC time: <span id="utc-time"></span>
@@ -253,7 +258,7 @@
                 <h2>API Keys</h2>
                 <span class="key-count" id="key-count"></span>
             </div>
-            
+
             <div class="table-container scrollable-table" id="keys-table-container">
                 <table id="keys-table" class="admin-table">
                     <thead>
@@ -274,7 +279,7 @@
                     </tbody>
                 </table>
             </div>
-            
+
             <div id="no-keys-message" class="empty-message hidden">
                 No API keys have been generated yet.
             </div>
@@ -285,19 +290,17 @@
             <div class="section-header">
                 <h2>Banned IPs</h2>
             </div>
-            
+
             <form id="ban-ip-form" class="inline-form" onsubmit="banIp(event)">
                 <div class="form-group inline">
-                    <input type="text" id="ban-ip-input" name="ip_address" 
-                           placeholder="IP address to ban..." required>
+                    <input type="text" id="ban-ip-input" name="ip_address" placeholder="IP address to ban..." required>
                 </div>
                 <div class="form-group inline">
-                    <input type="text" id="ban-reason-input" name="reason" 
-                           placeholder="Reason (optional)">
+                    <input type="text" id="ban-reason-input" name="reason" placeholder="Reason (optional)">
                 </div>
                 <button type="submit" class="btn btn-danger">Ban</button>
             </form>
-            
+
             <div class="table-container">
                 <table id="banned-table" class="admin-table">
                     <thead>
@@ -315,7 +318,7 @@
                     </tbody>
                 </table>
             </div>
-            
+
             <div id="no-banned-message" class="empty-message hidden">
                 No IP addresses are currently banned.
             </div>
@@ -326,6 +329,7 @@
     </main>
 
     <!-- Scripts -->
-    <script src="/static/admin.js?v=20260208a"></script>
+    <script src="/static/admin.js?v=20260217a"></script>
 </body>
+
 </html>

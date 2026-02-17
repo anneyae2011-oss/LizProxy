@@ -1062,7 +1062,7 @@
     gap: 8px;
     cursor: pointer;
     font-size: 0.85rem;
-    color: var(--ink-secondary);
+    color: var(--ink-soft);
 }
 
 .checkbox-label input[type="checkbox"] {
@@ -1074,21 +1074,28 @@
 .flags-cards-grid {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    max-height: 500px;
-    overflow-y: auto;
-    padding: 4px;
+    gap: 16px;
+    padding: 8px 4px;
 }
 
 .flag-card {
     padding: 0;
-    background: linear-gradient(165deg, rgba(255, 248, 248, 0.95), rgba(255, 252, 252, 0.9));
+    background: var(--cloud-white);
     border: 1.5px solid rgba(200, 100, 100, 0.3);
     border-radius: 14px;
     position: relative;
     transition: all 0.3s ease;
     box-shadow: 0 2px 12px rgba(200, 100, 100, 0.1);
     overflow: hidden;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+}
+
+.flag-card-body {
+    padding: 16px;
+    flex-grow: 1;
+    background: rgba(255, 255, 255, 0.5);
 }
 
 [data-theme="dark"] .flag-card {
@@ -1207,12 +1214,9 @@
 
 .flag-time {
     font-size: 0.75rem;
-    color: var(--ink-muted);
+    color: var(--ink-faded);
 }
 
-.flag-card-body {
-    padding: 14px 16px;
-}
 
 .flag-user-info,
 .flag-key-info,
@@ -1225,7 +1229,7 @@
 .flag-user-info strong,
 .flag-key-info strong,
 .flag-model-info strong {
-    color: var(--ink-primary);
+    color: var(--ink);
 }
 
 .flag-preview {
@@ -1235,7 +1239,7 @@
 .flag-preview strong {
     display: block;
     font-size: 0.75rem;
-    color: var(--ink-muted);
+    color: var(--ink-faded);
     margin-bottom: 6px;
 }
 
@@ -1282,7 +1286,7 @@
 
 .action-taken {
     font-size: 0.75rem;
-    color: var(--ink-muted);
+    color: var(--ink-faded);
     font-style: italic;
 }
 
