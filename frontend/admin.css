@@ -977,7 +977,7 @@
 .pending-user-name {
     font-weight: 600;
     font-size: 0.95rem;
-    color: var(--ink-primary, #2A2040);
+    color: var(--ink, #2A2040);
 }
 
 .pending-key-prefix {
@@ -1007,7 +1007,7 @@
     padding: 12px 16px;
     font-size: 0.9rem;
     line-height: 1.65;
-    color: var(--ink-primary, #2A2040);
+    color: var(--ink, #2A2040);
     white-space: pre-wrap;
     word-wrap: break-word;
     max-height: 200px;
