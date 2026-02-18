@@ -15,6 +15,13 @@ let consoleMessages = [];
 let currentFlags = []; // Store current flags for bulk actions
 const MAX_CONSOLE_MESSAGES = 50;
 
+// Render Cache (Prevents jitter/scroll resets on auto-refresh)
+let lastFlagsJson = '';
+let lastKeysJson = '';
+let lastLogsJson = '';
+let lastTopJson = '';
+let lastBannedJson = '';
+
 // DOM Elements
 const passwordModal = document.getElementById('password-modal');
 const analyticsModal = document.getElementById('analytics-modal');
@@ -357,6 +364,12 @@ async function loadRequestLogs(silent = false) {
 
         if (response.ok) {
             const logs = await response.json();
+
+            // Optimization: Only update DOM if logs changed
+            const logsJson = JSON.stringify(logs);
+            if (lastLogsJson === logsJson) return;
+            lastLogsJson = logsJson;
+
             displayRequestLogs(logs);
         } else if (response.status === 401) {
             logout();
@@ -413,6 +426,12 @@ async function loadTopRequests(silent = false) {
 
         if (response.ok) {
             const logs = await response.json();
+
+            // Optimization: Only update DOM if top requests changed
+            const topJson = JSON.stringify(logs);
+            if (lastTopJson === topJson) return;
+            lastTopJson = topJson;
+
             displayTopRequests(logs);
         } else if (response.status === 401) {
             logout();
@@ -471,6 +490,16 @@ async function loadKeys(silent = false) {
 
         if (response.ok) {
             const keys = await response.json();
+
+            // Optimization: Only update DOM if keys changed
+            const keysJson = JSON.stringify(keys);
+            if (lastKeysJson === keysJson) {
+                // Still update counts if they are visible
+                if (keyCount) keyCount.textContent = `(${keys.length} keys)`;
+                return;
+            }
+            lastKeysJson = keysJson;
+
             displayKeys(keys);
             if (keyCount) {
                 keyCount.textContent = `(${keys.length} keys)`;
@@ -823,6 +852,12 @@ async function loadBannedIps(silent = false) {
 
         if (response.ok) {
             const ips = await response.json();
+
+            // Optimization: Only update DOM if banned IPs changed
+            const bannedJson = JSON.stringify(ips);
+            if (lastBannedJson === bannedJson) return;
+            lastBannedJson = bannedJson;
+
             displayBannedIps(ips);
         } else if (response.status === 401) {
             logout();
@@ -1114,6 +1149,15 @@ async function loadFlags(silent = false) {
 
         if (response.ok) {
             const flags = await response.json();
+
+            // Optimization: Only update DOM if flags have actually changed
+            // This prevents "jumping" and scroll reset every 3 seconds
+            const flagsJson = JSON.stringify(flags);
+            if (lastFlagsJson === flagsJson) {
+                return;
+            }
+            lastFlagsJson = flagsJson;
+
             currentFlags = flags; // Save for bulk actions
             displayFlags(flags);
 
