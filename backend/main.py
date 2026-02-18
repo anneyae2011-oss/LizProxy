@@ -652,18 +652,17 @@ async def check_content_moderation(
     # All content for the actual moderation API call
     combined_content = "\n".join([f"{msg.role}: {msg.content}" for msg in messages])
 
-    # Combine last few messages for a better context in the preview
-    # Showing the last 3 messages provides better context than just the first 500 chars of everything
-    preview_msgs = messages[-3:] if len(messages) > 3 else messages
-    message_preview = "\n---\n".join([f"{msg.role.upper()}: {msg.content}" for msg in preview_msgs])
+    # Create a full conversation preview for the admin
+    # Including all messages ensures admins can see the context that actually triggered the flag
+    message_preview = "\n---\n".join([f"{msg.role.upper()}: {msg.content}" for msg in messages])
     
-    # Fallback if preview is somehow empty but flagged
+    # Fallback if preview is somehow empty
     if not message_preview.strip():
         message_preview = f"(Flagged empty content or malformed messages: {len(messages)} msgs)"
     
-    # Still truncate if extremely long
-    if len(message_preview) > 1000:
-        message_preview = message_preview[:1000] + "..."
+    # Use a much larger truncation limit to show the full prompt
+    if len(message_preview) > 20000:
+        message_preview = message_preview[:20000] + "\n\n...(Conversation truncated for preview - very long prompt)..."
     
     try:
         # Call VoidAI Omni AI moderation endpoint (fresh call every time, no caching)
@@ -719,12 +718,15 @@ async def check_content_moderation(
             else:
                 severity = "low"
             
-            # Create flag in database (no hash-based dedup — every flag is independent)
+            # Add the score to the beginning of the preview for easier admin review
+            message_preview_with_score = f"[Refinement Score: {csam_score:.3f}]\n{message_preview}"
+            
+            # Create flag in database
             flag_id = await db.create_content_flag(
                 api_key_id=key_record.id,
                 flag_type=flag_type,
                 severity=severity,
-                message_preview=message_preview,
+                message_preview=message_preview_with_score,
                 full_message_hash="",  # No deduplication hash
                 model=model,
                 ip_address=client_ip,
