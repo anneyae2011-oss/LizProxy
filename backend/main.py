@@ -1561,24 +1561,9 @@ async def proxy_chat_completions(
     )
     
     if moderation_result and moderation_result.get("flagged"):
-        # Content was flagged - log and block the request
-        # For critical severity (CSAM), we block immediately
-        if moderation_result.get("severity") == "critical":
-            await db.log_usage(
-                key_id=key_record.id,
-                model=chat_request.model,
-                tokens=token_count,
-                success=False,
-                ip_address=client_ip,
-                input_tokens=token_count,
-                error_message=f"Content blocked: {moderation_result.get('flag_type')}",
-            )
-            raise HTTPException(
-                status_code=451,  # Unavailable For Legal Reasons
-                detail="Your request has been blocked due to content policy violations. This incident has been logged."
-            )
-        # For non-critical flags, we still log but allow the request (admin can review)
-        # The flag is already created in the database by check_content_moderation()
+        # Content may be flagged for admin review, but requests are always allowed through.
+        # The flag is already created in the database by check_content_moderation().
+        pass
     
     # Get target API config
     target_url, target_key = await get_target_api_config()
