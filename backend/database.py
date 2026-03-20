@@ -290,13 +290,29 @@ class Database(ABC):
     async def get_all_banned_ips(self) -> List[BannedIpRecord]:
         pass
     
-    # Config operations
     @abstractmethod
-    async def get_config(self) -> Optional[ProxyConfig]:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
+        pass
+    
+    # Model management operations
+    @abstractmethod
+    async def get_excluded_models(self) -> List[str]:
+        """Return list of model IDs that are disabled."""
         pass
     
     @abstractmethod
-    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
+    async def exclude_model(self, model_id: str) -> None:
+        """Add a model to the exclusion list."""
+        pass
+    
+    @abstractmethod
+    async def include_model(self, model_id: str) -> bool:
+        """Remove a model from the exclusion list. Returns True if was excluded."""
+        pass
+    
+    @abstractmethod
+    async def clear_excluded_models(self) -> None:
+        """Enable all models by clearing the exclusion list."""
         pass
     
     # Content flag operations
@@ -464,6 +480,13 @@ class SQLiteDatabase(Database):
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_key ON content_flags(api_key_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_reviewed ON content_flags(reviewed)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_hash ON content_flags(full_message_hash)")
+        
+        # Model management table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS models_exclusion (
+                model_id TEXT PRIMARY KEY
+            )
+        """)
         
         await conn.commit()
 
@@ -764,6 +787,28 @@ class SQLiteDatabase(Database):
         await conn.execute("INSERT OR REPLACE INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, updated_at) VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)", (target_url, target_key, max_context, max_output_tokens))
         await conn.commit()
 
+    async def get_excluded_models(self) -> List[str]:
+        conn = await self._get_connection()
+        cursor = await conn.execute("SELECT model_id FROM models_exclusion")
+        rows = await cursor.fetchall()
+        return [row["model_id"] for row in rows]
+
+    async def exclude_model(self, model_id: str) -> None:
+        conn = await self._get_connection()
+        await conn.execute("INSERT OR IGNORE INTO models_exclusion (model_id) VALUES (?)", (model_id,))
+        await conn.commit()
+
+    async def include_model(self, model_id: str) -> bool:
+        conn = await self._get_connection()
+        cursor = await conn.execute("DELETE FROM models_exclusion WHERE model_id = ?", (model_id,))
+        await conn.commit()
+        return cursor.rowcount > 0
+
+    async def clear_excluded_models(self) -> None:
+        conn = await self._get_connection()
+        await conn.execute("DELETE FROM models_exclusion")
+        await conn.commit()
+
     def _row_to_api_key(self, row) -> ApiKeyRecord:
         return ApiKeyRecord(
             id=row["id"], key_hash=row["key_hash"], key_prefix=row["key_prefix"],
@@ -1034,6 +1079,13 @@ class PostgreSQLDatabase(Database):
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_key ON content_flags(api_key_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_reviewed ON content_flags(reviewed)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_hash ON content_flags(full_message_hash)")
+            
+            # Model management table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS models_exclusion (
+                    model_id TEXT PRIMARY KEY
+                )
+            """)
 
     async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", rp_application: Optional[str] = None, enabled: bool = True) -> int:
         pool = await self._get_pool()
@@ -1347,6 +1399,28 @@ class PostgreSQLDatabase(Database):
                 INSERT INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, updated_at) VALUES (1, $1, $2, $3, $4, CURRENT_TIMESTAMP)
                 ON CONFLICT (id) DO UPDATE SET target_api_url = $1, target_api_key = $2, max_context = $3, max_output_tokens = $4, updated_at = CURRENT_TIMESTAMP
             """, target_url, target_key, max_context, max_output_tokens)
+
+    async def get_excluded_models(self) -> List[str]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT model_id FROM models_exclusion")
+            return [row["model_id"] for row in rows]
+
+    async def exclude_model(self, model_id: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("INSERT INTO models_exclusion (model_id) VALUES ($1) ON CONFLICT (model_id) DO NOTHING", model_id)
+
+    async def include_model(self, model_id: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM models_exclusion WHERE model_id = $1", model_id)
+            return result == "DELETE 1"
+
+    async def clear_excluded_models(self) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM models_exclusion")
 
     @staticmethod
     def _safe_get(row, key, default=None):

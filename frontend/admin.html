@@ -159,6 +159,39 @@
             </div>
         </section>
 
+        <!-- Model Management Section -->
+        <section class="admin-section card">
+            <div class="section-header">
+                <h2>Model Management</h2>
+                <div class="header-actions">
+                    <button onclick="bulkModelAction('enable_all')" class="btn btn-ghost btn-sm">Enable All</button>
+                    <button onclick="bulkModelAction('disable_all')" class="btn btn-warning btn-sm">Disable All</button>
+                    <button onclick="loadModels()" class="btn btn-ghost btn-sm">Refresh</button>
+                </div>
+            </div>
+            
+            <p class="form-hint" style="margin-bottom: var(--space-sm);">
+                Control which models are visible to users. Disabled models will return 403 Forbidden.
+            </p>
+
+            <div class="table-container scrollable-table" style="max-height: 400px;">
+                <table id="models-table" class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Model ID</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="models-tbody">
+                        <tr>
+                            <td colspan="3" class="loading-cell">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- Configuration Section -->
         <section class="admin-section card">
             <div class="section-header">

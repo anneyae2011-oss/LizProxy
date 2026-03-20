@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Tuple, AsyncGenerator
+from typing import Optional, Tuple, AsyncGenerator, List, Dict
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, Response, Cookie
@@ -92,6 +92,28 @@ class AdminKeyResponse(BaseModel):
     tokens_used_today: int  # Tokens used today (daily quota)
     created_at: str
     last_used_at: Optional[str]
+
+
+
+class AdminModelInfo(BaseModel):
+    id: str
+    name: str
+    enabled: bool
+    created: int
+    owned_by: str
+
+
+class AdminModelsResponse(BaseModel):
+    models: List[AdminModelInfo]
+
+
+class ToggleModelRequest(BaseModel):
+    model_id: str
+    enabled: bool
+
+
+class BulkModelActionRequest(BaseModel):
+    action: str  # 'disable_all', 'enable_all'
 
 
 class ConfigResponse(BaseModel):
@@ -1216,6 +1238,15 @@ async def _proxy_models_impl(
         
         try:
             content = response.json()
+            
+            # Filter models based on exclusion list
+            if response.status_code == 200 and "data" in content:
+                excluded = await db.get_excluded_models()
+                if excluded:
+                    content["data"] = [
+                        m for m in content["data"] 
+                        if m.get("id") not in excluded
+                    ]
         except Exception:
             content = {"error": {"message": "Upstream returned invalid JSON"}}
         return JSONResponse(
@@ -1279,6 +1310,14 @@ async def proxy_chat_completions(
         The chat completion response from the target API.
     """
     key_record, client_ip = key_data
+    
+    # Check if model is disabled
+    excluded_models = await db.get_excluded_models()
+    if chat_request.model in excluded_models:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Model '{chat_request.model}' is currently disabled by administrator."
+        )
     
     # Input token count (for context check and rate-limit estimate)
     token_count = count_tokens(chat_request.messages)
@@ -2495,3 +2534,83 @@ async def serve_admin():
             headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
         )
     raise HTTPException(status_code=404, detail="Admin dashboard not found")
+
+@app.get("/admin/models", response_model=AdminModelsResponse)
+async def admin_get_models(
+    admin_authed: str = Depends(verify_admin_password),
+):
+    """Get all models with their current enabled/disabled status."""
+    target_url, target_key = await get_target_api_config()
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{target_url}/models",
+                headers={"Authorization": f"Bearer {target_key}"},
+                timeout=10.0
+            )
+            response.raise_for_status()
+            upstream_models = response.json().get("data", [])
+            
+        excluded = await db.get_excluded_models()
+        
+        models_info = []
+        for m in upstream_models:
+            models_info.append(AdminModelInfo(
+                id=m["id"],
+                name=m.get("id", "Unknown"),
+                enabled=m["id"] not in excluded,
+                created=m.get("created", 0),
+                owned_by=m.get("owned_by", "system")
+            ))
+            
+        # Sort: enabled first, then by id
+        models_info.sort(key=lambda x: (not x.enabled, x.id))
+        
+        return AdminModelsResponse(models=models_info)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch models from upstream: {str(e)}")
+
+
+@app.post("/admin/models/toggle")
+async def admin_toggle_model(
+    request: ToggleModelRequest,
+    admin_authed: str = Depends(verify_admin_password),
+):
+    """Enable or disable a specific model."""
+    if request.enabled:
+        await db.include_model(request.model_id)
+    else:
+        await db.exclude_model(request.model_id)
+    return {"status": "success", "model_id": request.model_id, "enabled": request.enabled}
+
+
+@app.post("/admin/models/bulk-action")
+async def admin_bulk_model_action(
+    request: BulkModelActionRequest,
+    admin_authed: str = Depends(verify_admin_password),
+):
+    """Perform bulk actions on models (e.g., disable all)."""
+    if request.action == "enable_all":
+        await db.clear_excluded_models()
+        return {"status": "success", "message": "All models enabled"}
+    elif request.action == "disable_all":
+        # To disable all, we first need to know what 'all' means (fetch from upstream)
+        target_url, target_key = await get_target_api_config()
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{target_url}/models",
+                    headers={"Authorization": f"Bearer {target_key}"},
+                    timeout=10.0
+                )
+                response.raise_for_status()
+                upstream_models = response.json().get("data", [])
+                
+            for m in upstream_models:
+                await db.exclude_model(m["id"])
+            return {"status": "success", "message": f"Disabled {len(upstream_models)} models"}
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch models for bulk action: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")

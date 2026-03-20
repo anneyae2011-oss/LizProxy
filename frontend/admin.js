@@ -21,6 +21,7 @@ let lastKeysJson = '';
 let lastLogsJson = '';
 let lastTopJson = '';
 let lastBannedJson = '';
+let lastModelsJson = '';
 
 // UX state for flags scrolling (prevents auto-refresh jitter while reviewing long flagged content)
 let lastFlagsInteractionAt = 0;
@@ -59,6 +60,7 @@ const noBannedMessage = document.getElementById('no-banned-message');
 const requestLogsEl = document.getElementById('request-logs');
 const topRequestsEl = document.getElementById('top-requests');
 const analyticsContent = document.getElementById('analytics-content');
+let modelsTbody = null;
 
 /**
  * Initialize the admin dashboard
@@ -250,6 +252,7 @@ function startAutoRefresh() {
         loadRequestLogs(true);
         loadTopRequests(true);
         loadFlags(true);
+        loadModels(true);
     }, REFRESH_INTERVAL);
 }
 
@@ -273,7 +276,8 @@ async function loadAllData() {
         loadBannedIps(),
         loadRequestLogs(),
         loadTopRequests(),
-        loadFlags()
+        loadFlags(),
+        loadModels()
     ]);
 }
 
@@ -1272,7 +1276,8 @@ async function flagAction(flagId, action) {
             const data = await response.json();
             logToConsole(`Flag action: ${data.message}`, 'success');
             showAdminStatus(data.message, 'success');
-            await loadFlags();
+            await loadFlags(),
+        loadModels();
             // Also refresh banned IPs if we banned someone
             if (action === 'ban_ip' || action === 'ban_and_disable') {
                 await loadBannedIps();
@@ -1285,7 +1290,8 @@ async function flagAction(flagId, action) {
             logout();
         } else if (response.status === 404) {
             logToConsole('Flag not found', 'error');
-            await loadFlags();
+            await loadFlags(),
+        loadModels();
         } else {
             const data = await response.json().catch(() => ({}));
             logToConsole(`Flag action failed: ${data.detail || 'Unknown error'}`, 'error');
@@ -1333,6 +1339,7 @@ async function bulkFlagAction(action) {
             logToConsole(data.message, 'success');
             showAdminStatus(data.message, 'success');
             await loadFlags();
+            await loadModels();
             // Refresh other lists if needed
             if (action.includes('ban')) await loadBannedIps();
             if (action.includes('disable') || action.includes('ban')) await loadKeys();
@@ -1346,6 +1353,118 @@ async function bulkFlagAction(action) {
     } catch (error) {
         logToConsole(`Bulk action error: ${error.message}`, 'error');
         showAdminStatus('Network error processing bulk action', 'error');
+    }
+}
+
+
+
+// ===================================
+// Model Management
+// ===================================
+
+async function loadModels(silent = false) {
+    if (!modelsTbody) {
+        modelsTbody = document.getElementById('models-tbody');
+    }
+    if (!modelsTbody) return;
+    
+    try {
+        const response = await adminFetch('/admin/models');
+        if (response.ok) {
+            const data = await response.json();
+            const models = data.models || [];
+            
+            // Optimization: Only update DOM if models changed
+            const modelsJson = JSON.stringify(models);
+            if (lastModelsJson === modelsJson) return;
+            lastModelsJson = modelsJson;
+            
+            displayModels(models);
+        } else if (response.status === 401) {
+            logout();
+        } else if (!silent) {
+            logToConsole('Failed to load models', 'error');
+        }
+    } catch (error) {
+        if (!silent) {
+            logToConsole(`Models error: ${error.message}`, 'error');
+        }
+    }
+}
+
+function displayModels(models) {
+    if (!modelsTbody) return;
+    
+    if (!models || models.length === 0) {
+        modelsTbody.innerHTML = '<tr><td colspan="3" class="loading-cell">No models found</td></tr>';
+        return;
+    }
+    
+    modelsTbody.innerHTML = models.map(model => `
+        <tr>
+            <td class="key-prefix">${escapeHtml(model.id)}</td>
+            <td>
+                <span class="status-badge ${model.enabled ? 'enabled' : 'disabled'}">
+                    ${model.enabled ? 'Enabled' : 'Disabled'}
+                </span>
+            </td>
+            <td>
+                <div class="action-buttons">
+                    <button onclick="toggleModel('${model.id}', ${model.enabled})" 
+                            class="btn ${model.enabled ? 'btn-warning' : 'btn-ghost'} btn-sm">
+                        ${model.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function toggleModel(modelId, currentlyEnabled) {
+    try {
+        const response = await adminFetch('/admin/models/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_id: modelId, enabled: !currentlyEnabled })
+        });
+        
+        if (response.ok) {
+            logToConsole(`Model ${modelId} ${currentlyEnabled ? 'disabled' : 'enabled'}`, 'success');
+            showAdminStatus(`Model ${modelId} updated successfully`, 'success');
+            await loadModels();
+        } else {
+            const data = await response.json().catch(() => ({}));
+            logToConsole(`Model toggle failed: ${data.detail || 'Unknown error'}`, 'error');
+        }
+    } catch (error) {
+        logToConsole(`Model toggle error: ${error.message}`, 'error');
+    }
+}
+
+async function bulkModelAction(action) {
+    const confirmMsg = action === 'disable_all' 
+        ? 'Are you sure you want to disable ALL models? Users will not be able to use any models.'
+        : 'Enable all models?';
+        
+    if (!confirm(confirmMsg)) return;
+    
+    try {
+        const response = await adminFetch('/admin/models/bulk-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+        
+        if (response.ok) {
+            logToConsole(`Bulk action '${action}' completed`, 'success');
+            showAdminStatus('Bulk action completed successfully', 'success');
+            await loadModels();
+        } else {
+            const data = await response.json().catch(() => ({}));
+            logToConsole(`Bulk action failed: ${data.detail || 'Unknown error'}`, 'error');
+        }
+    } catch (error) {
+        logToConsole(`Bulk action error: ${error.message}`, 'error');
     }
 }
 
