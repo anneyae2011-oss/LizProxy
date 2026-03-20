@@ -594,7 +594,7 @@ function displayKeys(keys) {
 /**
  * Display pending applications as prominent cards
  */
-function setBypassIp(keyId, bypass) {
+async function setBypassIp(keyId, bypass) {
     try {
         const response = await adminFetch(`/admin/keys/${keyId}/bypass-ip`, {
             method: 'PUT',
