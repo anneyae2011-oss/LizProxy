@@ -1073,7 +1073,7 @@ async def generate_key_endpoint(
     # Store in database with fingerprint AND full key
     # For IP-based key generation (legacy), use IP as a pseudo discord_id
     await db.create_api_key(
-        discord_id=f"ip_{client_ip}",  # Use IP as pseudo Discord ID for legacy support
+        discord_id=f"fp_{fingerprint}" if fingerprint else f"anon_{key_prefix}",
         discord_email=None,
         key_hash=key_hash,
         key_prefix=key_prefix,
