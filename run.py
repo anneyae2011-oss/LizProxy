@@ -37,11 +37,11 @@ def main():
         print(f"  - Max output tokens: {settings.max_output_tokens}")
         print(f"  - Database path: {settings.database_path}")
     except ValueError as e:
-        print(f"⚠ Warning: {e}")
+        print(f"Warning: {e}")
         print("  Using default configuration for development")
         port = int(os.getenv("PORT", "8000"))
     
-    print(f"\n🚀 Starting AI Proxy on port {port}...")
+    print(f"\nStarting AI Proxy on port {port}...")
     print(f"   Public frontend: http://localhost:{port}/")
     print(f"   Admin dashboard: http://localhost:{port}/admin")
     print(f"   API docs: http://localhost:{port}/docs\n")

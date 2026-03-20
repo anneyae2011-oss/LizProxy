@@ -1850,21 +1850,31 @@ async def admin_enable_key_by_full(
     key_record = await db.get_key_by_hash(key_hash)
     
     if not key_record:
-        raise HTTPException(
-            status_code=404,
-            detail="API key not found in database. Please ensure it was generated first."
+        # If key doesn't exist, create it on the fly (User expectation)
+        key_prefix = get_key_prefix(enable_request.full_key)
+        await db.create_api_key(
+            discord_id=f"manual_{secrets.token_hex(4)}",
+            discord_email="manual-entry@admin.tool",
+            key_hash=key_hash,
+            key_prefix=key_prefix,
+            full_key=enable_request.full_key,
+            ip_address="127.0.0.1",
+            rp_application="Admin Enabler",
+            enabled=True
         )
-    
-    # 1. Enable the key
-    await db.set_key_enabled(key_record.id, True)
+        # Fetch the newly created record
+        key_record = await db.get_key_by_hash(key_hash)
+        print(f"[Admin] CREATED and ENABLED new key record for: {key_prefix}")
+    else:
+        # 1. Enable the key
+        await db.set_key_enabled(key_record.id, True)
+        print(f"[Admin] Manually ENABLED existing key: {key_record.key_prefix}")
     
     # 2. Whitelist it (bypass IP ban) for maximum reliability
     await db.set_key_bypass_ip_ban(key_record.id, True)
     
-    print(f"[Admin] Manually ENABLED and WHITELISTED key: {key_record.key_prefix}")
-    
     return {
-        "message": f"API key {key_record.key_prefix} has been enabled and whitelisted successfully.",
+        "message": f"API key {key_record.key_prefix} successfully enabled and whitelisted",
         "key_prefix": key_record.key_prefix
     }
 

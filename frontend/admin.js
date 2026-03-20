@@ -138,6 +138,7 @@ function renderConsole() {
  * Show the password modal
  */
 function showPasswordModal() {
+    passwordModal.classList.add('active');
     passwordModal.classList.remove('hidden');
     adminContent.classList.add('hidden');
     document.getElementById('admin-password').focus();
@@ -147,6 +148,7 @@ function showPasswordModal() {
  * Hide the password modal and show dashboard
  */
 function showDashboard() {
+    passwordModal.classList.remove('active');
     passwordModal.classList.add('hidden');
     adminContent.classList.remove('hidden');
 }
@@ -290,6 +292,11 @@ async function adminFetch(url, options = {}) {
         'Cache-Control': 'no-cache',
         ...options.headers
     };
+
+    // Auto-add Content-Type for JSON bodies
+    if (options.body && (!headers['Content-Type'] && !headers['content-type'])) {
+        headers['Content-Type'] = 'application/json';
+    }
 
     try {
         const response = await fetch(url, {
@@ -720,6 +727,7 @@ async function showKeyAnalytics(keyId) {
     const modal = document.getElementById('analytics-modal');
     const content = document.getElementById('analytics-content');
 
+    modal.classList.add('active');
     modal.classList.remove('hidden');
     content.innerHTML = '<div class="loading-cell">Loading analytics...</div>';
 
@@ -823,7 +831,10 @@ function displayKeyAnalytics(data) {
 
 function closeAnalyticsModal() {
     const modal = document.getElementById('analytics-modal');
-    modal.classList.add('hidden');
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+    }, 500); // Wait for transition
 }
 
 // Close modal when clicking outside
