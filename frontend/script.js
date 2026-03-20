@@ -38,6 +38,14 @@ const totalTokens = document.getElementById('total-tokens');
  */
 async function init() {
     await checkLoggedIn();
+    
+    // Show Terms of Service on every refresh
+    const tosModal = document.getElementById('tos-modal');
+    if (tosModal) {
+        setTimeout(() => {
+            tosModal.classList.add('active');
+        }, 500); // Slight delay for better entrance effect
+    }
 }
 
 /**
@@ -351,6 +359,16 @@ function loadTheme() {
     const savedTheme = localStorage.getItem('ai_proxy_theme');
     if (savedTheme) {
         document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+}
+
+/**
+ * Close the Terms of Service modal
+ */
+function closeTos() {
+    const tosModal = document.getElementById('tos-modal');
+    if (tosModal) {
+        tosModal.classList.remove('active');
     }
 }
 
