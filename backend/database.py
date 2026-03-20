@@ -501,19 +501,19 @@ class SQLiteDatabase(Database):
 
     async def get_key_by_discord_id(self, discord_id: str) -> Optional[ApiKeyRecord]:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM api_keys WHERE discord_id = ?", (discord_id,))
+        cursor = await conn.execute("SELECT * FROM api_keys WHERE discord_id = ? ORDER BY enabled DESC, created_at DESC", (discord_id,))
         row = await cursor.fetchone()
         return self._row_to_api_key(row) if row else None
 
     async def get_key_by_ip(self, ip_address: str) -> Optional[ApiKeyRecord]:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM api_keys WHERE ip_address = ?", (ip_address,))
+        cursor = await conn.execute("SELECT * FROM api_keys WHERE ip_address = ? ORDER BY enabled DESC, created_at DESC", (ip_address,))
         row = await cursor.fetchone()
         return self._row_to_api_key(row) if row else None
 
     async def get_key_by_fingerprint(self, fingerprint: str) -> Optional[ApiKeyRecord]:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM api_keys WHERE browser_fingerprint = ?", (fingerprint,))
+        cursor = await conn.execute("SELECT * FROM api_keys WHERE browser_fingerprint = ? ORDER BY enabled DESC, created_at DESC", (fingerprint,))
         row = await cursor.fetchone()
         return self._row_to_api_key(row) if row else None
 
@@ -1105,19 +1105,19 @@ class PostgreSQLDatabase(Database):
     async def get_key_by_discord_id(self, discord_id: str) -> Optional[ApiKeyRecord]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM api_keys WHERE discord_id = $1", discord_id)
+            row = await conn.fetchrow("SELECT * FROM api_keys WHERE discord_id = $1 ORDER BY enabled DESC, created_at DESC LIMIT 1", discord_id)
             return self._row_to_api_key(row) if row else None
 
     async def get_key_by_ip(self, ip_address: str) -> Optional[ApiKeyRecord]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM api_keys WHERE ip_address = $1", ip_address)
+            row = await conn.fetchrow("SELECT * FROM api_keys WHERE ip_address = $1 ORDER BY enabled DESC, created_at DESC LIMIT 1", ip_address)
             return self._row_to_api_key(row) if row else None
 
     async def get_key_by_fingerprint(self, fingerprint: str) -> Optional[ApiKeyRecord]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM api_keys WHERE browser_fingerprint = $1", fingerprint)
+            row = await conn.fetchrow("SELECT * FROM api_keys WHERE browser_fingerprint = $1 ORDER BY enabled DESC, created_at DESC LIMIT 1", fingerprint)
             return self._row_to_api_key(row) if row else None
 
     async def get_key_by_hash(self, key_hash: str) -> Optional[ApiKeyRecord]:
