@@ -1080,15 +1080,24 @@ async def generate_key_endpoint(
 )
 async def get_my_key(
     request: Request,
+    fingerprint: Optional[str] = None,
     client_ip: str = Depends(check_ip_ban),
 ) -> KeyInfoResponse:
-    """Get information about the API key associated with the requesting IP.
+    """Get information about the API key associated with the requesting IP or fingerprint.
+    
+    Args:
+        fingerprint: Optional hardware fingerprint to look up by (query param).
     
     Returns:
         KeyInfoResponse with key metadata and current usage.
     """
-    # Get key for this IP
+    # Try IP first, then fingerprint
     key_record = await db.get_key_by_ip(client_ip)
+    if not key_record and fingerprint:
+        key_record = await db.get_key_by_fingerprint(fingerprint)
+        if key_record:
+            # Update IP so future lookups work
+            await db.update_key_ip(key_record.id, client_ip)
     if not key_record:
         raise HTTPException(
             status_code=404,
@@ -2467,32 +2476,26 @@ async def debug_ip(request: Request):
 
 @app.get("/", include_in_schema=False)
 async def serve_index():
-    """Serve the public frontend index.html.
-    
-    Returns:
-        The index.html file for the public frontend.
-    """
+    """Serve the public frontend index.html (no-cache to prevent CDN staleness)."""
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path), media_type="text/html")
-    # Debug info for troubleshooting
+        return FileResponse(
+            str(index_path), media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+        )
     raise HTTPException(
         status_code=404, 
         detail=f"Frontend not found. Checked: {FRONTEND_DIR}, exists={FRONTEND_DIR.exists()}, cwd={Path.cwd()}"
     )
 
 
-# /signup route removed — application form is no longer used
-
-
 @app.get("/admin", include_in_schema=False)
 async def serve_admin():
-    """Serve the admin dashboard admin.html.
-    
-    Returns:
-        The admin.html file for the admin dashboard.
-    """
+    """Serve the admin dashboard admin.html (no-cache to prevent CDN staleness)."""
     admin_path = FRONTEND_DIR / "admin.html"
     if admin_path.exists():
-        return FileResponse(str(admin_path), media_type="text/html")
+        return FileResponse(
+            str(admin_path), media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+        )
     raise HTTPException(status_code=404, detail="Admin dashboard not found")

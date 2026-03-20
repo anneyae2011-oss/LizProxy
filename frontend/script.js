@@ -122,7 +122,8 @@ async function generateKey() {
  */
 async function checkLoggedIn() {
     try {
-        const response = await fetch('/api/my-key');
+        const fp = await getHardwareFingerprint();
+        const response = await fetch('/api/my-key?fingerprint=' + encodeURIComponent(fp));
         
         if (response.ok) {
             const data = await response.json();
