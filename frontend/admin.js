@@ -501,6 +501,51 @@ function displayTopRequests(logs) {
 // API Keys Management
 // ===================================
 
+/**
+ * Enable an API key by its full string (Customer Enabler tool)
+ */
+async function enableKeyByFull(event) {
+    if (event) event.preventDefault();
+    
+    const form = document.getElementById('enabler-form');
+    const input = document.getElementById('enabler-key-input');
+    const statusEl = document.getElementById('enabler-status');
+    const fullKey = input.value.trim();
+    
+    if (!fullKey) return;
+    
+    if (!fullKey.startsWith('sk-')) {
+        showStatus('enabler-status', 'Key must start with "sk-"', 'error');
+        return;
+    }
+    
+    try {
+        logToConsole(`Enabling customer key: ${fullKey.substring(0, 10)}...`, 'info');
+        
+        const response = await adminFetch('/admin/keys/enable-by-full-key', {
+            method: 'POST',
+            body: JSON.stringify({ full_key: fullKey })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showStatus('enabler-status', data.message, 'success');
+            logToConsole(data.message, 'success');
+            input.value = ''; // Clear form
+            
+            // Refresh keys table to show changes
+            loadKeys(true);
+        } else {
+            showStatus('enabler-status', data.detail || 'Failed to enable key', 'error');
+            logToConsole(`Enable error: ${data.detail}`, 'error');
+        }
+    } catch (error) {
+        showStatus('enabler-status', `Error: ${error.message}`, 'error');
+        logToConsole(`Enable key JS error: ${error.message}`, 'error');
+    }
+}
+
 async function loadKeys(silent = false) {
     if (!silent) {
         keysTbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Loading...</td></tr>';

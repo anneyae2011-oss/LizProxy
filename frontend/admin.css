@@ -111,6 +111,22 @@
     padding: var(--space-md) var(--space-lg);
 }
 
+.enabler-sanctuary {
+    padding: var(--space-md) var(--space-lg);
+    background: linear-gradient(135deg, rgba(235, 230, 250, 0.4), rgba(220, 240, 255, 0.3));
+    border: 1px solid rgba(150, 130, 180, 0.3);
+}
+
+[data-theme="dark"] .enabler-sanctuary {
+    background: linear-gradient(135deg, rgba(60, 50, 80, 0.3), rgba(40, 60, 90, 0.2));
+    border-color: rgba(110, 90, 140, 0.3);
+}
+
+.enabler-sanctuary .section-header h2 {
+    color: var(--ink-soft);
+    text-shadow: 0 0 10px rgba(150, 130, 180, 0.3);
+}
+
 .request-cards-grid {
     display: flex;
     flex-direction: column;
@@ -790,6 +806,22 @@
 [data-theme="dark"] .status-message.error {
     background: rgba(120, 80, 80, 0.9);
     color: #E0C0C0;
+}
+
+/* Local status messages (within cards) */
+.enabler-sanctuary .status-message {
+    position: static;
+    transform: none;
+    margin-top: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    display: block;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+[data-theme="dark"] .enabler-sanctuary .status-message {
+    background: rgba(60, 55, 75, 0.5);
 }
 
 .error-message {

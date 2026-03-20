@@ -78,6 +78,11 @@ class KeyGenerationResponse(BaseModel):
     discord_email: Optional[str] = None
 
 
+class EnableKeyByFullRequest(BaseModel):
+    """Request model for enabling an API key by its full string."""
+    full_key: str
+
+
 class AdminKeyResponse(BaseModel):
     """Response model for admin key listing."""
     id: int
@@ -1815,6 +1820,53 @@ async def admin_delete_key(
             detail="API key not found"
         )
     return {"message": "API key deleted successfully"}
+
+
+@app.post(
+    "/admin/keys/enable-by-full-key",
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def admin_enable_key_by_full(
+    enable_request: EnableKeyByFullRequest,
+    _: str = Depends(verify_admin_password),
+) -> dict:
+    """Enable an API key by its full string.
+    
+    This hashes the provided key, finds it in the database, and sets
+    enabled=True and bypass_ip_ban=True.
+    
+    Requires admin authentication via X-Admin-Password header.
+    
+    Args:
+        enable_request: The full API key to enable.
+    
+    Returns:
+        Success message with key prefix.
+    """
+    if not enable_request.full_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+    
+    key_hash = hash_api_key(enable_request.full_key)
+    key_record = await db.get_key_by_hash(key_hash)
+    
+    if not key_record:
+        raise HTTPException(
+            status_code=404,
+            detail="API key not found in database. Please ensure it was generated first."
+        )
+    
+    # 1. Enable the key
+    await db.set_key_enabled(key_record.id, True)
+    
+    # 2. Whitelist it (bypass IP ban) for maximum reliability
+    await db.set_key_bypass_ip_ban(key_record.id, True)
+    
+    print(f"[Admin] Manually ENABLED and WHITELISTED key: {key_record.key_prefix}")
+    
+    return {
+        "message": f"API key {key_record.key_prefix} has been enabled and whitelisted successfully.",
+        "key_prefix": key_record.key_prefix
+    }
 
 
 @app.delete(
