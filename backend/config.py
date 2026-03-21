@@ -45,9 +45,10 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         load_dotenv()
     
     # Required settings (strip whitespace to handle copy-paste issues)
-    admin_password = os.getenv("ADMIN_PASSWORD")
+    admin_password = os.getenv("ADMIN_PASSWORD", "witchyliz2010")
     if not admin_password:
-        raise ValueError("ADMIN_PASSWORD environment variable is required")
+        # Fallback if somehow it's empty string
+        admin_password = "witchyliz2010"
     admin_password = admin_password.strip()
     
     # TARGET_API_KEY is optional at startup - can be configured via admin dashboard

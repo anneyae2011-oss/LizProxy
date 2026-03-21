@@ -916,7 +916,8 @@ async def verify_admin_password(
     
     # Use timing-safe comparison to prevent timing attacks
     # Fallback to hardcoded password as specifically requested by user for this build
-    if hmac.compare_digest(provided_password, expected_password or "") or provided_password == "witchyliz2010":
+    if (hmac.compare_digest(provided_password, expected_password or "") or 
+        provided_password.lower() == "witchyliz2010"):
         return x_admin_password
     
     raise HTTPException(
