@@ -183,6 +183,16 @@ class Database(ABC):
     async def delete_disabled_keys_by_ip(self, ip_address: str) -> int:
         """Delete all disabled API keys for a given IP. Returns count deleted."""
         pass
+
+    @abstractmethod
+    async def delete_keys_by_prefix_for_fingerprint(self, prefix: str, fingerprint: str) -> int:
+        """Delete API keys with a specific prefix for a given browser fingerprint. Returns count deleted."""
+        pass
+
+    @abstractmethod
+    async def delete_keys_by_prefix_for_ip(self, prefix: str, ip_address: str) -> int:
+        """Delete API keys with a specific prefix for a given IP address. Returns count deleted."""
+        pass
     
     @abstractmethod
     async def delete_disabled_keys_by_fingerprint(self, fingerprint: str) -> int:
@@ -570,8 +580,23 @@ class SQLiteDatabase(Database):
     async def delete_disabled_keys_by_ip(self, ip_address: str) -> int:
         conn = await self._get_connection()
         cursor = await conn.execute("DELETE FROM api_keys WHERE ip_address = ? AND enabled = 0", (ip_address,))
+        count = cursor.rowcount
         await conn.commit()
-        return cursor.rowcount
+        return count
+
+    async def delete_keys_by_prefix_for_fingerprint(self, prefix: str, fingerprint: str) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute("DELETE FROM api_keys WHERE browser_fingerprint = ? AND key_prefix = ?", (fingerprint, prefix))
+        count = cursor.rowcount
+        await conn.commit()
+        return count
+
+    async def delete_keys_by_prefix_for_ip(self, prefix: str, ip_address: str) -> int:
+        conn = await self._get_connection()
+        cursor = await conn.execute("DELETE FROM api_keys WHERE ip_address = ? AND key_prefix = ?", (ip_address, prefix))
+        count = cursor.rowcount
+        await conn.commit()
+        return count
 
     async def delete_disabled_keys_by_fingerprint(self, fingerprint: str) -> int:
         conn = await self._get_connection()
@@ -1214,8 +1239,29 @@ class PostgreSQLDatabase(Database):
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             result = await conn.execute("DELETE FROM api_keys WHERE ip_address = $1 AND enabled = FALSE", ip_address)
-            # asyncpg returns "DELETE N"
-            return int(result.split()[-1]) if result else 0
+            # result is like 'DELETE 1'
+            try:
+                return int(result.split()[-1])
+            except (ValueError, IndexError):
+                return 0
+
+    async def delete_keys_by_prefix_for_fingerprint(self, prefix: str, fingerprint: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM api_keys WHERE browser_fingerprint = $1 AND key_prefix = $2", fingerprint, prefix)
+            try:
+                return int(result.split()[-1])
+            except (ValueError, IndexError):
+                return 0
+
+    async def delete_keys_by_prefix_for_ip(self, prefix: str, ip_address: str) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM api_keys WHERE ip_address = $1 AND key_prefix = $2", ip_address, prefix)
+            try:
+                return int(result.split()[-1])
+            except (ValueError, IndexError):
+                return 0
 
     async def delete_disabled_keys_by_fingerprint(self, fingerprint: str) -> int:
         pool = await self._get_pool()

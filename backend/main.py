@@ -1050,28 +1050,27 @@ async def get_key_for_request(
             if key_record.ip_address != client_ip:
                 print(f"[Auth] IP migration: Key {key_record.key_prefix} moved to {client_ip} (Fingerprint match)")
                 await db.update_key_ip(key_record.id, client_ip)
-            return key_record
-            
-    # 2. Try IP-based lookup (fallback)
-    key_record = await db.get_key_by_ip(client_ip)
+            # We found a match by fingerprint, skip IP-based lookup
+    
+    # 2. Try IP-based lookup (fallback) only if no fingerprint match was found
+    if not key_record:
+        key_record = await db.get_key_by_ip(client_ip)
+        if key_record:
+            # VALIDATION: Only return the IP's key if it matches this fingerprint OR has no fingerprint set yet
+            if not key_record.browser_fingerprint or key_record.browser_fingerprint == fingerprint:
+                # Update fingerprint if it was missing but is now provided
+                if fingerprint and not key_record.browser_fingerprint:
+                    await db.update_key_fingerprint(key_record.id, fingerprint)
+            else:
+                # Shared IP conflict: The IP has a key, but it belongs to a different fingerprint.
+                print(f"[Auth] Shared IP conflict: {client_ip} has key {key_record.key_prefix} but different FP.")
+                key_record = None
+                
+    # Final verification and Blacklist check
     if key_record:
-        # VALIDATION: Only return the IP's key if it matches this fingerprint OR has no fingerprint set yet
-        if not key_record.browser_fingerprint or key_record.browser_fingerprint == fingerprint:
-            # Update fingerprint if it was missing but is now provided
-            if fingerprint and not key_record.browser_fingerprint:
-                await db.update_key_fingerprint(key_record.id, fingerprint)
-            return key_record
-        else:
-            # Shared IP conflict: The IP has a key, but it belongs to a different fingerprint.
-            print(f"[Auth] Shared IP conflict: {client_ip} has key {key_record.key_prefix} but different FP.")
-            return None
-            
-    if key_record:
-        # Final Blacklist check for the resolved key
         if key_record.key_prefix in ["sk-7c37d", "sk-8f5d9"]:
-            print(f"[Auth] Key {key_record.key_prefix} is blacklisted/purged. Forcing 404.")
+            print(f"[Auth] Key {key_record.key_prefix} is blacklisted/purged. returning None.")
             return None
-            
         return key_record
         
     return None
@@ -1112,7 +1111,13 @@ async def generate_key_endpoint(
     # This ensures that "Your API key is disabled" errors are resolved by deletion
     if fingerprint:
         await db.delete_disabled_keys_by_fingerprint(fingerprint)
+        # Also delete blacklisted keys to free up slots
+        for prefix in ["sk-7c37d", "sk-8f5d9"]:
+            await db.delete_keys_by_prefix_for_fingerprint(prefix, fingerprint)
+            
     await db.delete_disabled_keys_by_ip(client_ip)
+    for prefix in ["sk-7c37d", "sk-8f5d9"]:
+        await db.delete_keys_by_prefix_for_ip(prefix, client_ip)
     
     # 1. Try to find an existing key for this device
     existing_key = await get_key_for_request(db, client_ip, fingerprint)
