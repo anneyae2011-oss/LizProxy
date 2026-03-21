@@ -996,7 +996,10 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize database and settings
     try:
         settings = load_settings()
-    except ValueError:
+        if settings:
+            print(f"* Admin password loaded. Length: {len(settings.admin_password)}")
+    except ValueError as e:
+        print(f"* Error loading settings: {e}")
         # For testing, use defaults
         settings = None
     
