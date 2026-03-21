@@ -1013,10 +1013,12 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origin_regex="https?://.*",  # Match all origins (allows reflecting Origin when allow_credentials=True)
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 
@@ -1356,6 +1358,7 @@ async def proxy_models(
 
 
 @app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions/")
 async def proxy_chat_completions(
     request: Request,
     chat_request: ChatCompletionRequest,
@@ -1480,6 +1483,9 @@ async def proxy_chat_completions(
         
         # Log the request for debugging
         print(f"[Proxy Request] Model: {request_body.get('model')}, Stream: {request_body.get('stream')}, Target: {target_url}")
+        
+        # Log headers for CORS/compatibility debugging if needed
+        # print(f"[Debug Headers] {dict(request.headers)}")
         
         # Handle streaming response
         if chat_request.stream:
