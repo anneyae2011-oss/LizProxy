@@ -124,57 +124,8 @@ class ProxyConfig:
     max_output_tokens: int
 
 
-<<<<<<< HEAD
-@dataclass
-class RpUser:
-    """A user registered to the LizRP platform."""
-    id: str
-    username: str
-    password_hash: str
-    avatar: Optional[str]
-    bio: Optional[str]
-    created_at: datetime
 
-@dataclass
-class RpBot:
-    """An RP character bot created by a user."""
-    id: str
-    name: str
-    avatar: Optional[str]
-    description: Optional[str]
-    lore: Optional[str]
-    personality: Optional[str]
-    tags: Optional[str]
-    creator_id: Optional[str]
-    created_at: datetime
-    creator_name: Optional[str] = None
 
-@dataclass
-class RpOc:
-    """A user persona (Original Character)."""
-    id: str
-    name: str
-    avatar: Optional[str]
-    description: Optional[str]
-    lore: Optional[str]
-    personality: Optional[str]
-    owner_id: Optional[str]
-    created_at: datetime
-
-@dataclass
-class RpChat:
-    """An active chat session between a user (or OC) and a bot."""
-    id: str
-    bot_id: str
-    oc_id: Optional[str]
-    wallpaper: Optional[str]
-    model_id: Optional[str]
-    messages: str  # JSON String
-    owner_id: str
-    created_at: datetime
-    updated_at: datetime
-=======
->>>>>>> e512792 (feat: complete removal of LizRP features and associated database/backend logic)
 
 def create_database(database_url: Optional[str] = None, database_path: str = "./proxy.db") -> "Database":
     """Factory function to create the appropriate database instance."""
@@ -432,76 +383,8 @@ class Database(ABC):
         """Count unreviewed flags."""
         pass
         
-<<<<<<< HEAD
-    # --- LizRP Abstract Methods ---
-    
-    # Model Aliases
-    @abstractmethod
-    async def get_model_aliases(self) -> dict[str, str]: pass
-    
-    @abstractmethod
-    async def set_model_alias(self, model_id: str, alias_name: str) -> None: pass
-    
-    @abstractmethod
-    async def delete_model_alias(self, model_id: str) -> None: pass
-    
-    # RP Users
-    @abstractmethod
-    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None, bio: Optional[str] = None) -> bool: pass
-    
-    @abstractmethod
-    async def get_rp_user_by_username(self, username: str) -> Optional[RpUser]: pass
-    
-    @abstractmethod
-    async def get_rp_user_by_id(self, id: str) -> Optional[RpUser]: pass
-    
-    @abstractmethod
-    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str], bio: Optional[str] = None) -> bool: pass
-    
-    # RP Bots
-    @abstractmethod
-    async def create_rp_bot(self, id: str, name: str, avatar: Optional[str], description: Optional[str], lore: Optional[str], personality: Optional[str], tags: Optional[str], creator_id: Optional[str]) -> bool: pass
-    
-    @abstractmethod
-    async def get_rp_bots(self, limit: int = 50, offset: int = 0, search_query: Optional[str] = None) -> List[RpBot]: pass
-    
-    @abstractmethod
-    async def get_rp_bot_by_id(self, id: str) -> Optional[RpBot]: pass
-    
-    @abstractmethod
-    async def update_rp_bot(self, id: str, name: str, avatar: Optional[str], description: Optional[str], lore: Optional[str], personality: Optional[str], tags: Optional[str]) -> bool: pass
-    
-    # RP OCs
-    @abstractmethod
-    async def create_rp_oc(self, id: str, name: str, avatar: Optional[str], description: Optional[str], lore: Optional[str], personality: Optional[str], owner_id: str) -> bool: pass
-    
-    @abstractmethod
-    async def get_rp_ocs_by_owner(self, owner_id: str) -> List[RpOc]: pass
-    
-    @abstractmethod
-    async def get_rp_oc_by_id(self, id: str) -> Optional[RpOc]: pass
-    
-    @abstractmethod
-    async def update_rp_oc(self, id: str, name: str, avatar: Optional[str], description: Optional[str], lore: Optional[str], personality: Optional[str]) -> bool: pass
-    
-    # RP Chats
-    @abstractmethod
-    async def create_rp_chat(self, id: str, bot_id: str, oc_id: Optional[str], model_id: Optional[str], messages: str, owner_id: str) -> bool: pass
-    
-    @abstractmethod
-    async def get_rp_chats_by_owner(self, owner_id: str) -> List[RpChat]: pass
-    
-    @abstractmethod
-    async def get_rp_chat_by_id(self, id: str) -> Optional[RpChat]: pass
-    
-    @abstractmethod
-    async def update_rp_chat(self, id: str, messages: str, wallpaper: Optional[str], model_id: Optional[str], oc_id: Optional[str]) -> bool: pass
-    
-    @abstractmethod
-    async def delete_rp_chat(self, id: str) -> bool: pass
-=======
 
->>>>>>> e512792 (feat: complete removal of LizRP features and associated database/backend logic)
+
 
 
 class SQLiteDatabase(Database):
@@ -636,85 +519,8 @@ class SQLiteDatabase(Database):
             )
         """)
         
-<<<<<<< HEAD
-        # RP Model aliases
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS model_aliases (
-                model_id TEXT PRIMARY KEY,
-                alias_name TEXT NOT NULL
-            )
-        """)
-        
-        # LizRP Users
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS rp_users (
-                id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                avatar TEXT,
-                bio TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Migration: add bio column if missing.
-        rp_user_cols = await conn.execute("PRAGMA table_info(rp_users)")
-        rp_user_col_rows = await rp_user_cols.fetchall()
-        rp_user_col_names = {row[1] for row in rp_user_col_rows}
-        if "bio" not in rp_user_col_names:
-            await conn.execute("ALTER TABLE rp_users ADD COLUMN bio TEXT")
-        
-        # LizRP Bots
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS rp_bots (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                avatar TEXT,
-                description TEXT,
-                lore TEXT,
-                personality TEXT,
-                tags TEXT,
-                creator_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (creator_id) REFERENCES rp_users(id) ON DELETE SET NULL
-            )
-        """)
-        
-        # LizRP OCs (User Personas)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS rp_ocs (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                avatar TEXT,
-                description TEXT,
-                lore TEXT,
-                personality TEXT,
-                owner_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (owner_id) REFERENCES rp_users(id) ON DELETE CASCADE
-            )
-        """)
-        
-        # LizRP Chats
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS rp_chats (
-                id TEXT PRIMARY KEY,
-                bot_id TEXT NOT NULL,
-                oc_id TEXT,
-                wallpaper TEXT,
-                model_id TEXT,
-                messages TEXT DEFAULT '[]',
-                owner_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (bot_id) REFERENCES rp_bots(id) ON DELETE CASCADE,
-                FOREIGN KEY (oc_id) REFERENCES rp_ocs(id) ON DELETE SET NULL,
-                FOREIGN KEY (owner_id) REFERENCES rp_users(id) ON DELETE CASCADE
-            )
-        """)
-        
-        await conn.commit()
-=======
->>>>>>> e512792 (feat: complete removal of LizRP features and associated database/backend logic)
+
+
 
 
     async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", enabled: bool = True, browser_fingerprint: Optional[str] = None) -> int:
@@ -1174,83 +980,8 @@ class SQLiteDatabase(Database):
         rows = await cursor.fetchall()
         return [self._row_to_content_flag(row) for row in rows]
 
-<<<<<<< HEAD
-    # --- LizRP SQLite Implementations ---
-    
-    # Model Aliases
-    async def get_model_aliases(self) -> dict[str, str]:
-        conn = await self._get_connection()
-        cursor = await conn.execute("SELECT model_id, alias_name FROM model_aliases")
-        rows = await cursor.fetchall()
-        return {row["model_id"]: row["alias_name"] for row in rows}
-        
-    async def set_model_alias(self, model_id: str, alias_name: str) -> None:
-        conn = await self._get_connection()
-        await conn.execute("INSERT OR REPLACE INTO model_aliases (model_id, alias_name) VALUES (?, ?)", (model_id, alias_name))
-        await conn.commit()
-        
-    async def delete_model_alias(self, model_id: str) -> None:
-        conn = await self._get_connection()
-        await conn.execute("DELETE FROM model_aliases WHERE model_id = ?", (model_id,))
-        await conn.commit()
-        
-    # RP Users
-    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None, bio: Optional[str] = None) -> bool:
-        conn = await self._get_connection()
-        try:
-            await conn.execute(
-                "INSERT INTO rp_users (id, username, password_hash, avatar, bio) VALUES (?, ?, ?, ?, ?)",
-                (id, username, password_hash, avatar, bio),
-            )
-            await conn.commit()
-            return True
-        except aiosqlite.IntegrityError:
-            return False
-            
-    async def _row_to_rp_user(self, row) -> RpUser:
-        return RpUser(
-            id=row["id"], username=row["username"], password_hash=row["password_hash"],
-            avatar=row["avatar"], bio=row["bio"], created_at=self._parse_ts(row["created_at"])
-        )
-        
-    async def get_rp_user_by_username(self, username: str) -> Optional[RpUser]:
-        conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM rp_users WHERE username = ?", (username,))
-        row = await cursor.fetchone()
-        return await self._row_to_rp_user(row) if row else None
-        
-    async def get_rp_user_by_id(self, id: str) -> Optional[RpUser]:
-        conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM rp_users WHERE id = ?", (id,))
-        row = await cursor.fetchone()
-        return await self._row_to_rp_user(row) if row else None
-        
-    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str], bio: Optional[str] = None) -> bool:
-        conn = await self._get_connection()
-        try:
-            cursor = await conn.execute(
-                "UPDATE rp_users SET username = ?, avatar = ?, bio = ? WHERE id = ?",
-                (username, avatar, bio, id),
-            )
-            await conn.commit()
-            return cursor.rowcount > 0
-        except aiosqlite.IntegrityError:
-            return False
-            
-    async def _row_to_rp_bot(self, row) -> RpBot:
-        try:
-            creator_name = row["creator_name"]
-        except (IndexError, KeyError, TypeError):
-            creator_name = None
-            
-        return RpBot(
-            id=row["id"], name=row["name"], avatar=row["avatar"], description=row["description"],
-            lore=row["lore"], personality=row["personality"], tags=row["tags"],
-            creator_id=row["creator_id"], created_at=self._parse_ts(row["created_at"]),
-            creator_name=creator_name
-        )
-=======
->>>>>>> e512792 (feat: complete removal of LizRP features and associated database/backend logic)
+
+
 
 
 
@@ -1454,84 +1185,8 @@ class PostgreSQLDatabase(Database):
                 )
             """)
             
-<<<<<<< HEAD
-            # RP Model aliases
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS model_aliases (
-                    model_id TEXT PRIMARY KEY,
-                    alias_name TEXT NOT NULL
-                )
-            """)
-            
-            # LizRP Users
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS rp_users (
-                    id TEXT PRIMARY KEY,
-                    username TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    avatar TEXT,
-                    bio TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            # Migration: add bio column if missing
-            rp_user_cols = await conn.fetch("""
-                SELECT column_name FROM information_schema.columns WHERE table_name = 'rp_users'
-            """)
-            rp_user_col_names = {r["column_name"] for r in rp_user_cols}
-            if "bio" not in rp_user_col_names:
-                await conn.execute("ALTER TABLE rp_users ADD COLUMN bio TEXT")
-            
-            # LizRP Bots
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS rp_bots (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    avatar TEXT,
-                    description TEXT,
-                    lore TEXT,
-                    personality TEXT,
-                    tags TEXT,
-                    creator_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (creator_id) REFERENCES rp_users(id) ON DELETE SET NULL
-                )
-            """)
-            
-            # LizRP OCs
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS rp_ocs (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    avatar TEXT,
-                    description TEXT,
-                    lore TEXT,
-                    personality TEXT,
-                    owner_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (owner_id) REFERENCES rp_users(id) ON DELETE CASCADE
-                )
-            """)
-            
-            # LizRP Chats
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS rp_chats (
-                    id TEXT PRIMARY KEY,
-                    bot_id TEXT NOT NULL,
-                    oc_id TEXT,
-                    wallpaper TEXT,
-                    model_id TEXT,
-                    messages TEXT DEFAULT '[]',
-                    owner_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (bot_id) REFERENCES rp_bots(id) ON DELETE CASCADE,
-                    FOREIGN KEY (oc_id) REFERENCES rp_ocs(id) ON DELETE SET NULL,
-                    FOREIGN KEY (owner_id) REFERENCES rp_users(id) ON DELETE CASCADE
-                )
-            """)
-=======
->>>>>>> e512792 (feat: complete removal of LizRP features and associated database/backend logic)
+
+
 
 
     async def create_api_key(self, discord_id: str, discord_email: Optional[str], key_hash: str, key_prefix: str, full_key: str, ip_address: str = "unknown", enabled: bool = True, browser_fingerprint: Optional[str] = None) -> int:
@@ -2059,82 +1714,6 @@ class PostgreSQLDatabase(Database):
             reviewed_at=row["reviewed_at"],
         )
 
-<<<<<<< HEAD
-    # --- LizRP PostgreSQL Implementations ---
-    
-    # Model Aliases
-    async def get_model_aliases(self) -> dict[str, str]:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch("SELECT model_id, alias_name FROM model_aliases")
-            return {row["model_id"]: row["alias_name"] for row in rows}
-            
-    async def set_model_alias(self, model_id: str, alias_name: str) -> None:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO model_aliases (model_id, alias_name) VALUES ($1, $2)
-                ON CONFLICT (model_id) DO UPDATE SET alias_name = $2
-            """, model_id, alias_name)
-            
-    async def delete_model_alias(self, model_id: str) -> None:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM model_aliases WHERE model_id = $1", model_id)
-            
-    # RP Users
-    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None, bio: Optional[str] = None) -> bool:
-        pool = await self._get_pool()
-        try:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "INSERT INTO rp_users (id, username, password_hash, avatar, bio) VALUES ($1, $2, $3, $4, $5)",
-                    id, username, password_hash, avatar, bio,
-                )
-                return True
-        except asyncpg.UniqueViolationError:
-            return False
-            
-    def _row_to_rp_user(self, row) -> RpUser:
-        return RpUser(
-            id=row["id"], username=row["username"], password_hash=row["password_hash"],
-            avatar=self._safe_get(row, "avatar"),
-            bio=self._safe_get(row, "bio"),
-            created_at=row["created_at"]
-        )
-        
-    async def get_rp_user_by_username(self, username: str) -> Optional[RpUser]:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM rp_users WHERE username = $1", username)
-            return self._row_to_rp_user(row) if row else None
-            
-    async def get_rp_user_by_id(self, id: str) -> Optional[RpUser]:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM rp_users WHERE id = $1", id)
-            return self._row_to_rp_user(row) if row else None
-            
-    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str], bio: Optional[str] = None) -> bool:
-        pool = await self._get_pool()
-        try:
-            async with pool.acquire() as conn:
-                result = await conn.execute(
-                    "UPDATE rp_users SET username = $1, avatar = $2, bio = $3 WHERE id = $4",
-                    username, avatar, bio, id,
-                )
-                return result == "UPDATE 1"
-        except asyncpg.UniqueViolationError:
-            return False
-            
-    def _row_to_rp_bot(self, row) -> RpBot:
-        return RpBot(
-            id=row["id"], name=row["name"], avatar=self._safe_get(row, "avatar"),
-            description=self._safe_get(row, "description"), lore=self._safe_get(row, "lore"),
-            personality=self._safe_get(row, "personality"), tags=self._safe_get(row, "tags"),
-            creator_id=self._safe_get(row, "creator_id"), created_at=row["created_at"],
-            creator_name=self._safe_get(row, "creator_name")
-        )
-=======
->>>>>>> e512792 (feat: complete removal of LizRP features and associated database/backend logic)
+
+
 
