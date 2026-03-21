@@ -723,7 +723,7 @@ async def screen_for_csam(
     ]
     
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
                 f"{CSAM_DETECTOR_API_URL}/chat/completions",
                 headers={
