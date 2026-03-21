@@ -31,9 +31,6 @@
     <!-- Navigation Bar -->
     <nav class="navbar" style="position: relative; z-index: 100;">
         <div class="nav-brand-container">
-            <button id="sidebar-toggle" class="btn btn-ghost btn-sm sidebar-hamburger" aria-label="Toggle Sidebar">
-                ☰
-            </button>
             <a href="/rp" class="nav-brand">✧ LizRP ✧</a>
         </div>
         <div class="nav-links">
@@ -41,7 +38,7 @@
             <a href="/rp" class="nav-link rp-active-link">LizRP</a>
             <button id="auth-nav-btn" class="btn btn-ghost btn-sm" onclick="showLoginModal()">Sign In</button>
             <div id="user-profile-menu" class="user-menu hidden">
-                <span id="nav-username" class="username-display"></span>
+                <span id="nav-username" class="username-display" onclick="showProfileModal()" title="View Profile"></span>
                 <button onclick="logoutRp()" class="btn btn-ghost btn-sm">Sign Out</button>
             </div>
         </div>
@@ -53,40 +50,17 @@
         <!-- Collapsible Sidebar -->
         <aside id="rp-sidebar" class="rp-sidebar">
             <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <h3>Recent Chats</h3>
+                    <button class="btn btn-ghost btn-sm mobile-only" onclick="toggleSidebar()">✕</button>
+                </div>
                 
-                <div class="sidebar-section">
-                    <h3>Chat Controls</h3>
-                    <button class="btn btn-primary btn-full sidebar-btn" onclick="showDiscoveryHub()">Start new chat</button>
-                    
-                    <div class="sidebar-dropdown">
-                        <label>Models</label>
-                        <select id="rp-model-select" class="input-modern">
-                            <option value="">Default Model</option>
-                        </select>
-                    </div>
-
-                    <div class="sidebar-dropdown">
-                        <label>Select an OC</label>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <select id="rp-oc-select" class="input-modern" style="flex:1;">
-                                <option value="">No OC (Playing as yourself)</option>
-                            </select>
-                            <button class="btn btn-ghost btn-icon" onclick="showOcModal()" title="Create/Manage OCs">+</button>
-                        </div>
-                    </div>
+                <div id="old-chats-list" class="chats-list">
+                    <div class="loading-text">Sign in to view chats</div>
                 </div>
 
-                <div class="sidebar-section">
-                    <h3>Old chats</h3>
-                    <div id="old-chats-list" class="chats-list">
-                        <div class="loading-text">Sign in to view chats</div>
-                    </div>
-                </div>
-
-                <div class="sidebar-section" style="margin-top: auto;">
-                    <h3>Chat Wallpaper</h3>
-                    <button class="btn btn-ghost btn-full sidebar-btn" onclick="triggerWallpaperUpload()">Upload Wallpaper</button>
-                    <input type="file" id="wallpaper-upload" accept="image/*" class="hidden" onchange="handleWallpaperChange(event)">
+                <div class="sidebar-footer">
+                    <button class="btn btn-primary btn-full" onclick="showDiscoveryHub()">+ New Bot</button>
                 </div>
             </div>
         </aside>
@@ -112,17 +86,75 @@
                 </div>
             </div>
 
+            <!-- Bot Profile View (Intermediate State) -->
+            <div id="bot-profile-view" class="view-panel hidden">
+                <div class="profile-card card slide-in">
+                    <button class="btn btn-ghost btn-icon close-profile-btn" onclick="showDiscoveryHub()">✕</button>
+                    <div class="profile-header">
+                        <img id="profile-bot-avatar" src="" alt="Bot Avatar" class="profile-avatar scale-up">
+                        <div class="profile-titles">
+                            <h2 id="profile-bot-name">Bot Name</h2>
+                            <p id="profile-bot-creator" class="creator-tag">by User</p>
+                        </div>
+                    </div>
+                    <div class="profile-body">
+                        <div class="profile-section">
+                            <h4>About</h4>
+                            <p id="profile-bot-desc"></p>
+                        </div>
+                        <div id="profile-tags" class="bot-card-tags"></div>
+                        
+                        <div class="profile-actions">
+                            <button id="start-chat-btn" class="btn btn-primary btn-large shadow-glow" onclick="startNewChat()">Start Conversation</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Chat Interface -->
             <div id="chat-interface" class="view-panel hidden">
                 <div class="chat-header">
                     <div class="chat-bot-info">
+                        <button class="btn btn-ghost btn-icon back-btn" onclick="showDiscoveryHub()" title="Back to Hub">←</button>
                         <img id="chat-bot-avatar" src="" alt="Bot Avatar" class="chat-avatar default-avatar">
                         <div class="chat-bot-details">
                             <h3 id="chat-bot-name">Bot Name</h3>
                             <span id="chat-bot-creator" class="creator-tag">by User</span>
                         </div>
                     </div>
-                    <button class="btn btn-ghost btn-sm" onclick="showDiscoveryHub()">← Back to Hub</button>
+                    
+                    <div class="chat-header-actions">
+                        <button id="chat-menu-toggle" class="btn btn-ghost btn-icon menu-btn" aria-label="Chat Menu">☰</button>
+                    </div>
+
+                    <!-- Chat Menu Dropdown -->
+                    <div id="chat-menu-dropdown" class="chat-menu-dropdown hidden">
+                        <div class="menu-section">
+                            <h4>Session Settings</h4>
+                            <div class="menu-item">
+                                <label>Model</label>
+                                <select id="menu-model-select" class="input-modern select-sm"></select>
+                            </div>
+                            <div class="menu-item">
+                                <label>Persona (OC)</label>
+                                <div class="flex-row">
+                                    <select id="menu-oc-select" class="input-modern select-sm"></select>
+                                    <button class="btn btn-ghost btn-icon btn-xs" onclick="showOcModal()" title="New OC">+</button>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="menu-section">
+                            <h4>Actions</h4>
+                            <button class="menu-action-btn" onclick="showDiscoveryHub()">Start New Chat</button>
+                            <button class="menu-action-btn" onclick="triggerWallpaperUpload()">Change Wallpaper</button>
+                        </div>
+                        <hr>
+                        <div class="menu-section">
+                            <h4>Recent Chats</h4>
+                            <div id="menu-old-chats" class="menu-chats-list"></div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div id="chat-messages" class="chat-messages-container">
@@ -170,6 +202,31 @@
                 </div>
             </form>
             <button onclick="closeModal('auth-modal')" class="close-modal-btn">✕</button>
+        </div>
+    </div>
+
+    <!-- User Profile Modal -->
+    <div id="profile-modal" class="modal hidden">
+        <div class="modal-content card slide-in">
+            <h2>User Profile</h2>
+            <form id="profile-form" onsubmit="handleProfileSubmit(event)">
+                <div class="avatar-upload-container">
+                    <img id="profile-avatar-preview" src="" class="avatar-preview hidden">
+                    <div id="profile-avatar-placeholder" class="avatar-placeholder">Upload Avatar</div>
+                    <input type="file" id="user-avatar-upload" accept="image/*" class="hidden" onchange="handleAvatarChange(event, 'user')">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('user-avatar-upload').click()">Change Avatar</button>
+                </div>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="profile-username" required class="input-modern" placeholder="Username">
+                </div>
+                <div id="profile-error" class="status-message error hidden"></div>
+                <div class="modal-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('profile-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="profile-submit-btn">Update Profile</button>
+                </div>
+            </form>
+            <button onclick="closeModal('profile-modal')" class="close-modal-btn">✕</button>
         </div>
     </div>
 

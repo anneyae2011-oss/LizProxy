@@ -15,22 +15,42 @@ let myOcs = [];
 
 // DOM Elements
 const discoveryHub = document.getElementById('discovery-hub');
+const botProfileView = document.getElementById('bot-profile-view');
 const chatInterface = document.getElementById('chat-interface');
 const botsGrid = document.getElementById('bots-grid');
 const oldChatsList = document.getElementById('old-chats-list');
-const modelSelect = document.getElementById('rp-model-select');
-const ocSelect = document.getElementById('rp-oc-select');
+const menuOldChats = document.getElementById('menu-old-chats');
+
+// Menu Settings Elements
+const modelSelect = document.getElementById('menu-model-select');
+const ocSelect = document.getElementById('menu-oc-select');
+const chatMenuDropdown = document.getElementById('chat-menu-dropdown');
+const chatMenuToggle = document.getElementById('chat-menu-toggle');
 
 // Auth DOM
 const authNavBtn = document.getElementById('auth-nav-btn');
 const userProfileMenu = document.getElementById('user-profile-menu');
 const navUsername = document.getElementById('nav-username');
 
+// Profile Settings DOM
+const profileModal = document.getElementById('profile-modal');
+const profileUsernameInput = document.getElementById('profile-username');
+const profileAvatarPreview = document.getElementById('profile-avatar-preview');
+const profileAvatarPlaceholder = document.getElementById('profile-avatar-placeholder');
+
+// Profile DOM
+const profileBotAvatar = document.getElementById('profile-bot-avatar');
+const profileBotName = document.getElementById('profile-bot-name');
+const profileBotCreator = document.getElementById('profile-bot-creator');
+const profileBotDesc = document.getElementById('profile-bot-desc');
+const profileTags = document.getElementById('profile-tags');
+
 // Chat DOM
 const chatMessagesContainer = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatBotAvatar = document.getElementById('chat-bot-avatar');
 const chatBotName = document.getElementById('chat-bot-name');
+const chatBotCreator = document.getElementById('chat-bot-creator');
 
 // ===================================
 // Initialization
@@ -39,7 +59,38 @@ const chatBotName = document.getElementById('chat-bot-name');
 document.addEventListener('DOMContentLoaded', () => {
     loadTheme();
     initRP();
+    initEventListeners();
 });
+
+function initEventListeners() {
+    // Menu Toggle
+    if (chatMenuToggle) {
+        chatMenuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleChatMenu();
+        });
+    }
+
+    // Close menu on outside click
+    document.addEventListener('click', (e) => {
+        if (chatMenuDropdown && !chatMenuDropdown.classList.contains('hidden')) {
+            if (!chatMenuDropdown.contains(e.target)) {
+                closeChatMenu();
+            }
+        }
+    });
+
+    // Close menu on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeChatMenu();
+            closeModal('auth-modal');
+            closeModal('bot-modal');
+            closeModal('oc-modal');
+            closeModal('profile-modal');
+        }
+    });
+}
 
 async function initRP() {
     // 1. Check Auth Status
@@ -174,7 +225,8 @@ function handleLogoutState() {
     authNavBtn.classList.remove('hidden');
     userProfileMenu.classList.add('hidden');
     oldChatsList.innerHTML = '<div class="loading-text">Sign in to view chats</div>';
-    ocSelect.innerHTML = '<option value="">No OC (Playing as yourself)</option>';
+    if (menuOldChats) menuOldChats.innerHTML = '';
+    ocSelect.innerHTML = '<option value="">No OC</option>';
 }
 
 function logoutRp() {
@@ -182,6 +234,19 @@ function logoutRp() {
     handleLogoutState();
     showDiscoveryHub();
     showToast('Logged out successfully', 'info');
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('rp-sidebar');
+    if (sidebar) sidebar.classList.toggle('open');
+}
+
+function toggleChatMenu() {
+    if (chatMenuDropdown) chatMenuDropdown.classList.toggle('hidden');
+}
+
+function closeChatMenu() {
+    if (chatMenuDropdown) chatMenuDropdown.classList.add('hidden');
 }
 
 // ===================================
@@ -270,6 +335,7 @@ async function loadUserContent() {
                 opt.textContent = oc.name;
                 ocSelect.appendChild(opt);
             });
+            // Update OC display in menu specifically if same
         }
     } catch (e) { console.error("OCs load failed", e); }
     
@@ -279,23 +345,26 @@ async function loadUserContent() {
         if (chatRes.ok) {
             const chatData = await chatRes.json();
             
-            if (chatData.chats.length === 0) {
-                oldChatsList.innerHTML = '<div class="loading-text">No previous chats.</div>';
-            } else {
-                // Sort newest first
+            const renderList = (container, isMenu = false) => {
+                if (chatData.chats.length === 0) {
+                    container.innerHTML = `<div class="loading-text">${isMenu ? 'No chats' : 'No previous chats.'}</div>`;
+                    return;
+                }
                 chatData.chats.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
-                
-                oldChatsList.innerHTML = chatData.chats.map(c => `
+                container.innerHTML = chatData.chats.slice(0, isMenu ? 5 : 50).map(c => `
                     <div class="chat-item ${currentChatId === c.id ? 'active' : ''}" onclick="loadChatHistory('${c.id}')">
                         <img src="${c.bot_avatar || '/static/default-bot.png'}" class="chat-item-avatar" onerror="this.src='/static/default-bot.png'">
                         <div class="chat-item-details">
                             <span class="chat-item-name">${escapeHtml(c.bot_name)}</span>
                             <span class="chat-item-time">${formatShortDate(c.updated_at)}</span>
                         </div>
-                        <button class="chat-item-delete" onclick="deleteChat(event, '${c.id}')">✕</button>
+                        ${!isMenu ? `<button class="chat-item-delete" onclick="deleteChat(event, '${c.id}')">✕</button>` : ''}
                     </div>
                 `).join('');
-            }
+            };
+
+            renderList(oldChatsList);
+            if (menuOldChats) renderList(menuOldChats, true);
         }
     } catch (e) { console.error("Chats load failed", e); }
 }
@@ -305,21 +374,19 @@ async function loadUserContent() {
 // ===================================
 
 function showDiscoveryHub() {
-    chatInterface.classList.remove('active-view');
     chatInterface.classList.add('hidden');
-    
+    botProfileView.classList.add('hidden');
     discoveryHub.classList.remove('hidden');
-    // slight delay for animation
+    chatInterface.classList.remove('active-view');
+    botProfileView.classList.remove('active-view');
+    
     setTimeout(() => {
         discoveryHub.classList.add('active-view');
     }, 10);
     
     currentChatId = null;
     currentBotId = null;
-    
-    // Refresh sidebar highlights
     document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
-    
     loadDiscoveryHub();
 }
 
@@ -329,12 +396,40 @@ async function openBotView(botId) {
         return;
     }
     
+    try {
+        const res = await fetch(`/api/rp/bots/${botId}`);
+        if (res.ok) {
+            const bot = await res.json();
+            currentBotId = bot.id;
+            
+            // Populate Profile
+            profileBotName.textContent = bot.name;
+            profileBotCreator.textContent = `by ${bot.creator_name || 'Anon'}`;
+            profileBotDesc.textContent = bot.description || 'No description provided.';
+            profileBotAvatar.src = bot.avatar || '/static/default-bot.png';
+            
+            profileTags.innerHTML = bot.tags ? bot.tags.split(',').map(t => `<span class="bot-tag">${escapeHtml(t.trim())}</span>`).join('') : '';
+
+            // Transition
+            discoveryHub.classList.add('hidden');
+            discoveryHub.classList.remove('active-view');
+            botProfileView.classList.remove('hidden');
+            setTimeout(() => {
+                botProfileView.classList.add('active-view');
+            }, 10);
+        }
+    } catch (e) {
+        showToast('Error loading bot profile', 'error');
+    }
+}
+
+async function startNewChat() {
+    if (!currentBotId || !currentUser) return;
     const token = localStorage.getItem(RP_TOKEN_KEY);
     
     try {
-        // Create a new chat session
         const payload = {
-            bot_id: botId,
+            bot_id: currentBotId,
             oc_id: ocSelect.value || null,
             model_id: modelSelect.value || null
         };
@@ -351,7 +446,7 @@ async function openBotView(botId) {
         if (res.ok) {
             const chat = await res.json();
             await loadChatHistory(chat.id);
-            await loadUserContent(); // Refresh sidebar list
+            await loadUserContent();
         } else {
             showToast('Failed to start chat', 'error');
         }
@@ -395,8 +490,10 @@ async function loadChatHistory(chatId) {
             renderChatMessages();
             
             // Switch view
-            discoveryHub.classList.remove('active-view');
             discoveryHub.classList.add('hidden');
+            discoveryHub.classList.remove('active-view');
+            botProfileView.classList.add('hidden');
+            botProfileView.classList.remove('active-view');
             
             chatInterface.classList.remove('hidden');
             setTimeout(() => {
@@ -788,10 +885,67 @@ function showOcModal() {
 }
 
 function closeModal(id) {
-    document.getElementById(id).classList.add('hidden');
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
 }
 
-let pendingModalBase64 = { bot: null, oc: null };
+function showProfileModal() {
+    if (!currentUser) return;
+    profileUsernameInput.value = currentUser.username;
+    if (currentUser.avatar) {
+        profileAvatarPreview.src = currentUser.avatar;
+        profileAvatarPreview.classList.remove('hidden');
+        profileAvatarPlaceholder.classList.add('hidden');
+    } else {
+        profileAvatarPreview.classList.add('hidden');
+        profileAvatarPlaceholder.classList.remove('hidden');
+    }
+    document.getElementById('profile-error').classList.add('hidden');
+    profileModal.classList.remove('hidden');
+}
+
+async function handleProfileSubmit(e) {
+    e.preventDefault();
+    const token = localStorage.getItem(RP_TOKEN_KEY);
+    const errorEl = document.getElementById('profile-error');
+    const submitBtn = document.getElementById('profile-submit-btn');
+    
+    const payload = {
+        username: profileUsernameInput.value.trim(),
+        avatar: pendingModalBase64.user || currentUser.avatar
+    };
+
+    submitBtn.disabled = true;
+    errorEl.classList.add('hidden');
+
+    try {
+        const res = await fetch('/api/rp/profile', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            showToast('Profile updated!', 'success');
+            closeModal('profile-modal');
+            await checkAuth(); // Refresh state
+        } else {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to update profile');
+        }
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        submitBtn.disabled = false;
+    }
+}
+
+
+let pendingModalBase64 = { bot: null, oc: null, user: null };
 
 function handleAvatarChange(event, type) {
     const file = event.target.files[0];
