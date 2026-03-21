@@ -37,7 +37,7 @@ load_dotenv()
 # Persistent session secret from DB (no .env required; survives restarts)
 SESSION_SECRET = get_or_create_session_secret(
     database_url=os.getenv("DATABASE_URL"),
-    database_path=os.getenv("DATABASE_PATH", "./proxy.db"),
+    database_path=os.getenv("DATABASE_PATH", "/tmp/proxy.db" if os.getenv("VERCEL") or os.getenv("ZEABUR") else "./proxy.db"),
 )
 
 
@@ -1005,7 +1005,7 @@ async def lifespan(app: FastAPI):
         print(f"* Using PostgreSQL database")
         db = create_database(database_url=settings.database_url)
     else:
-        db_path = settings.database_path if settings else "./proxy.db"
+        db_path = settings.database_path if settings else ("/tmp/proxy.db" if os.getenv("VERCEL") or os.getenv("ZEABUR") else "./proxy.db")
         print(f"* Using SQLite database: {db_path}")
         db = create_database(database_path=db_path)
     
