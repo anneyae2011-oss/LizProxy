@@ -1085,7 +1085,7 @@ app = FastAPI(
 # ==================== Session Middleware (for OAuth) ====================
 # max_age=1 year so login persists across browser restarts
 # https_only must match the deployment: True for production HTTPS, False for localhost HTTP
-_PRODUCTION = bool(os.getenv("ZEABUR_SERVICE_ID") or os.getenv("RAILWAY_SERVICE_ID") or os.getenv("RENDER_SERVICE_ID"))
+_PRODUCTION = bool(os.getenv("ZEABUR_SERVICE_ID") or os.getenv("RAILWAY_SERVICE_ID") or os.getenv("RENDER_SERVICE_ID") or os.getenv("VERCEL"))
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
