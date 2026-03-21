@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from backend.config import load_settings, Settings
 from backend.database import Database, ApiKeyRecord, create_database, ContentFlagRecord
 from backend.session_secret import get_or_create_session_secret
-
+from backend.rp_api import rp_router
 
 # ==================== Early .env Loading ====================
 # Load .env early so env vars are available at module level (before lifespan)
@@ -131,6 +131,7 @@ class AdminModelInfo(BaseModel):
     enabled: bool
     created: int
     owned_by: str
+    alias: Optional[str] = None
 
 
 class AdminModelsResponse(BaseModel):
@@ -140,6 +141,10 @@ class AdminModelsResponse(BaseModel):
 class ToggleModelRequest(BaseModel):
     model_id: str
     enabled: bool
+
+class UpdateModelAliasRequest(BaseModel):
+    model_id: str
+    alias: str
 
 
 class BulkModelActionRequest(BaseModel):
@@ -998,6 +1003,7 @@ async def lifespan(app: FastAPI):
         db = create_database(database_path=db_path)
     
     await db.initialize()
+    app.state.db = db
     
     # Initialize global HTTP client with connection pooling for 100+ concurrent users
     http_client = httpx.AsyncClient(
@@ -2740,6 +2746,17 @@ async def serve_admin():
         )
     raise HTTPException(status_code=404, detail="Admin dashboard not found")
 
+@app.get("/rp", include_in_schema=False)
+async def serve_rp():
+    """Serve the LizRP platform rp.html (no-cache to prevent CDN staleness)."""
+    rp_path = FRONTEND_DIR / "rp.html"
+    if rp_path.exists():
+        return FileResponse(
+            str(rp_path), media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+        )
+    raise HTTPException(status_code=404, detail="LizRP platform not found")
+
 @app.get("/admin/models", response_model=AdminModelsResponse)
 async def admin_get_models(
     admin_authed: str = Depends(verify_admin_password),
@@ -2758,15 +2775,18 @@ async def admin_get_models(
             upstream_models = response.json().get("data", [])
             
         excluded = await db.get_excluded_models()
+        aliases = await db.get_model_aliases()
         
         models_info = []
         for m in upstream_models:
+            model_id = m["id"]
             models_info.append(AdminModelInfo(
-                id=m["id"],
+                id=model_id,
                 name=m.get("id", "Unknown"),
-                enabled=m["id"] not in excluded,
+                enabled=model_id not in excluded,
                 created=m.get("created", 0),
-                owned_by=m.get("owned_by", "system")
+                owned_by=m.get("owned_by", "system"),
+                alias=aliases.get(model_id)
             ))
             
         # Sort: enabled first, then by id
@@ -2776,6 +2796,18 @@ async def admin_get_models(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch models from upstream: {str(e)}")
 
+@app.post("/admin/models/alias")
+async def admin_update_model_alias(
+    request: UpdateModelAliasRequest,
+    admin_authed: str = Depends(verify_admin_password),
+):
+    """Set or remove an alias for a model."""
+    if not request.alias.strip():
+        await db.delete_model_alias(request.model_id)
+        return {"status": "success", "message": "Alias removed"}
+    else:
+        await db.set_model_alias(request.model_id, request.alias.strip())
+        return {"status": "success", "message": "Alias updated"}
 
 @app.post("/admin/models/toggle")
 async def admin_toggle_model(
@@ -2819,3 +2851,6 @@ async def admin_bulk_model_action(
             raise HTTPException(status_code=502, detail=f"Failed to fetch models for bulk action: {str(e)}")
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
+
+# --- LizRP Router Integration ---
+app.include_router(rp_router)

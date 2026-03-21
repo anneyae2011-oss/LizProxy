@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LizRP - Roleplay with AI Models">
+    <title>LizRP ✧ Hub</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Quicksand:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/style.css?v=20260320_v2">
+    <link rel="stylesheet" href="/static/rp.css?v=20260320_v2">
+</head>
+
+<body>
+    <!-- Chat Wallpaper Background -->
+    <div id="rp-background" class="background-image"></div>
+    <div class="vignette-overlay"></div>
+
+    <!-- Theme Toggle -->
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode" style="z-index: 1000;">
+        <span class="icon-sun">☀️</span>
+        <span class="icon-moon">🌙</span>
+    </button>
+
+    <!-- Navigation Bar -->
+    <nav class="navbar" style="position: relative; z-index: 100;">
+        <div class="nav-brand-container">
+            <button id="sidebar-toggle" class="btn btn-ghost btn-sm sidebar-hamburger" aria-label="Toggle Sidebar">
+                ☰
+            </button>
+            <a href="/rp" class="nav-brand">✧ LizRP ✧</a>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="nav-link">Home</a>
+            <a href="/rp" class="nav-link rp-active-link">LizRP</a>
+            <button id="auth-nav-btn" class="btn btn-ghost btn-sm" onclick="showLoginModal()">Sign In</button>
+            <div id="user-profile-menu" class="user-menu hidden">
+                <span id="nav-username" class="username-display"></span>
+                <button onclick="logoutRp()" class="btn btn-ghost btn-sm">Sign Out</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main App Container -->
+    <div class="rp-container">
+        
+        <!-- Collapsible Sidebar -->
+        <aside id="rp-sidebar" class="rp-sidebar">
+            <div class="sidebar-content">
+                
+                <div class="sidebar-section">
+                    <h3>Chat Controls</h3>
+                    <button class="btn btn-primary btn-full sidebar-btn" onclick="showDiscoveryHub()">Start new chat</button>
+                    
+                    <div class="sidebar-dropdown">
+                        <label>Models</label>
+                        <select id="rp-model-select" class="input-modern">
+                            <option value="">Default Model</option>
+                        </select>
+                    </div>
+
+                    <div class="sidebar-dropdown">
+                        <label>Select an OC</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <select id="rp-oc-select" class="input-modern" style="flex:1;">
+                                <option value="">No OC (Playing as yourself)</option>
+                            </select>
+                            <button class="btn btn-ghost btn-icon" onclick="showOcModal()" title="Create/Manage OCs">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Old chats</h3>
+                    <div id="old-chats-list" class="chats-list">
+                        <div class="loading-text">Sign in to view chats</div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section" style="margin-top: auto;">
+                    <h3>Chat Wallpaper</h3>
+                    <button class="btn btn-ghost btn-full sidebar-btn" onclick="triggerWallpaperUpload()">Upload Wallpaper</button>
+                    <input type="file" id="wallpaper-upload" accept="image/*" class="hidden" onchange="handleWallpaperChange(event)">
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main id="rp-main-content" class="rp-main">
+            
+            <!-- Discovery Hub (Default View) -->
+            <div id="discovery-hub" class="view-panel active-view">
+                <div class="hub-header">
+                    <h2>✧ Public Bots ✧</h2>
+                    <button class="btn btn-primary shadow-glow" onclick="showCreateBotModal()">+ Create Bot</button>
+                </div>
+                <!-- Controls for importing -->
+                <div class="hub-controls" style="margin-bottom: 2rem; display: flex; gap: 1rem; align-items: center;">
+                    <button class="btn btn-ghost btn-sm" onclick="triggerCardImport()">Import Character Card (PNG/JSON)</button>
+                    <input type="file" id="card-upload" accept=".png,.json" class="hidden" onchange="handleCardImport(event)">
+                    <p class="subtitle" style="margin:0; font-size: 0.9rem;">Start exploring the LizRP universe.</p>
+                </div>
+
+                <div id="bots-grid" class="bots-grid">
+                    <div class="loading-spinner">Loading bots...</div>
+                </div>
+            </div>
+
+            <!-- Chat Interface -->
+            <div id="chat-interface" class="view-panel hidden">
+                <div class="chat-header">
+                    <div class="chat-bot-info">
+                        <img id="chat-bot-avatar" src="" alt="Bot Avatar" class="chat-avatar default-avatar">
+                        <div class="chat-bot-details">
+                            <h3 id="chat-bot-name">Bot Name</h3>
+                            <span id="chat-bot-creator" class="creator-tag">by User</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="showDiscoveryHub()">← Back to Hub</button>
+                </div>
+                
+                <div id="chat-messages" class="chat-messages-container">
+                    <!-- Messages go here -->
+                </div>
+
+                <div class="chat-input-area">
+                    <div class="image-preview-container hidden" id="image-preview-container">
+                        <img id="image-preview" src="" alt="Preview">
+                        <button class="remove-image-btn" onclick="removeImage()">✕</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <button class="btn btn-ghost btn-icon attachment-btn" onclick="triggerChatAttachment()" title="Attach Image">📎</button>
+                        <input type="file" id="chat-attachment" accept="image/*" class="hidden" onchange="handleChatAttachment(event)">
+                        
+                        <textarea id="chat-input" class="modern-textarea" placeholder="Type your message... (Shift+Enter for newline)" rows="1" oninput="autoResizeTextarea(this)" onkeydown="handleChatKeydown(event)"></textarea>
+                        
+                        <button class="btn btn-primary shadow-glow send-btn" onclick="sendMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal hidden">
+        <div class="modal-content card slide-in">
+            <h2 id="auth-title">Sign In</h2>
+            <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="auth-username" required class="input-modern">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="auth-password" required class="input-modern">
+                </div>
+                <div id="auth-error" class="status-message error hidden"></div>
+                <button type="submit" class="btn btn-primary btn-full" id="auth-submit-btn">Sign In</button>
+                <div style="text-align: center; margin-top: 1rem;">
+                    <a href="#" class="accent-link" onclick="toggleAuthMode()">Don't have an account? Register here</a>
+                </div>
+            </form>
+            <button onclick="closeModal('auth-modal')" class="close-modal-btn">✕</button>
+        </div>
+    </div>
+
+    <!-- Create/Edit Bot Modal -->
+    <div id="bot-modal" class="modal hidden">
+        <div class="modal-content card slide-in large-modal">
+            <h2 id="bot-modal-title">Create Bot</h2>
+            <form id="bot-form" onsubmit="handleBotSubmit(event)">
+                <div class="form-row">
+                    <!-- Left Column: Avatar & Name & Tags -->
+                    <div class="form-col" style="flex: 1;">
+                        <div class="avatar-upload-container">
+                            <img id="bot-avatar-preview" src="" class="avatar-preview hidden">
+                            <div id="bot-avatar-placeholder" class="avatar-placeholder">Upload Avatar</div>
+                            <input type="file" id="bot-avatar-upload" accept="image/*" class="hidden" onchange="handleAvatarChange(event, 'bot')">
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('bot-avatar-upload').click()">Choose Image</button>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="bot-name" required class="input-modern" placeholder="Character Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Tags (Comma separated)</label>
+                            <input type="text" id="bot-tags" class="input-modern" placeholder="Fantasy, Romance, Scifi...">
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Lore & Personality -->
+                    <div class="form-col" style="flex: 2;">
+                        <div class="form-group">
+                            <label>Description (Short)</label>
+                            <textarea id="bot-description" class="modern-textarea" rows="2" placeholder="A brief public description of the character."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Lore / Scenario</label>
+                            <textarea id="bot-lore" class="modern-textarea" rows="4" placeholder="Background story and current scenario context."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Personality / Instructions</label>
+                            <textarea id="bot-personality" class="modern-textarea" rows="4" placeholder="How the bot should speak and behave. Traits, tics, rules."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div id="bot-error" class="status-message error hidden"></div>
+                <div class="modal-actions" style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('bot-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="bot-submit-btn">Save Bot</button>
+                </div>
+            </form>
+            <button onclick="closeModal('bot-modal')" class="close-modal-btn">✕</button>
+        </div>
+    </div>
+
+    <!-- Create/Edit OC Modal -->
+    <div id="oc-modal" class="modal hidden">
+        <div class="modal-content card slide-in large-modal">
+            <h2 id="oc-modal-title">Create OC (Persona)</h2>
+            <p class="subtitle" style="margin-bottom: 1.5rem;">Create an Original Character to roleplay as.</p>
+            <form id="oc-form" onsubmit="handleOcSubmit(event)">
+                <div class="form-row">
+                    <div class="form-col" style="flex: 1;">
+                        <div class="avatar-upload-container">
+                            <img id="oc-avatar-preview" src="" class="avatar-preview hidden">
+                            <div id="oc-avatar-placeholder" class="avatar-placeholder">Upload Avatar</div>
+                            <input type="file" id="oc-avatar-upload" accept="image/*" class="hidden" onchange="handleAvatarChange(event, 'oc')">
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('oc-avatar-upload').click()">Choose Image</button>
+                        </div>
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="oc-name" required class="input-modern" placeholder="Your OC Name">
+                        </div>
+                    </div>
+                    <div class="form-col" style="flex: 2;">
+                        <div class="form-group">
+                            <label>Physical Description</label>
+                            <textarea id="oc-description" class="modern-textarea" rows="3" placeholder="What your character looks like."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Persona Elements (Lore/Personality)</label>
+                            <textarea id="oc-personality" class="modern-textarea" rows="5" placeholder="Background and traits that the AI should know about you."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div id="oc-error" class="status-message error hidden"></div>
+                <div class="modal-actions" style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('oc-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="oc-submit-btn">Save OC</button>
+                </div>
+            </form>
+            <button onclick="closeModal('oc-modal')" class="close-modal-btn">✕</button>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/rp.js?v=20260320_v2"></script>
+</body>
+</html>

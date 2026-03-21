@@ -1186,6 +1186,12 @@ function displayModels(models) {
         <tr>
             <td class="key-prefix">${escapeHtml(model.id)}</td>
             <td>
+                <div class="alias-container" style="display: flex; gap: 0.5rem; align-items: center;">
+                    <span id="alias-text-${escapeAttr(model.id)}">${model.alias ? escapeHtml(model.alias) : '<em style="color:var(--text-muted)">None</em>'}</span>
+                    <button onclick="editModelAlias('${escapeAttr(model.id)}', '${escapeAttr(model.alias || '')}')" class="btn btn-ghost btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;">Edit</button>
+                </div>
+            </td>
+            <td>
                 <span class="status-badge ${model.enabled ? 'enabled' : 'disabled'}">
                     ${model.enabled ? 'Enabled' : 'Disabled'}
                 </span>
@@ -1200,6 +1206,31 @@ function displayModels(models) {
             </td>
         </tr>
     `).join('');
+}
+
+async function editModelAlias(modelId, currentAlias) {
+    const newAlias = prompt(`Enter new alias for ${modelId} (leave blank to remove):`, currentAlias);
+    if (newAlias === null) return; // Cancelled
+    
+    try {
+        const response = await adminFetch('/admin/models/alias', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_id: modelId, alias: newAlias })
+        });
+        
+        if (response.ok) {
+            logToConsole(`Alias for ${modelId} updated`, 'success');
+            showAdminStatus(`Alias updated successfully`, 'success');
+            await loadModels(true);
+        } else {
+            const data = await response.json().catch(() => ({}));
+            logToConsole(`Alias update failed: ${data.detail || 'Unknown error'}`, 'error');
+            showAdminStatus(`Target error: ${data.detail}`, 'error');
+        }
+    } catch (error) {
+        logToConsole(`Alias update error: ${error.message}`, 'error');
+    }
 }
 
 async function toggleModel(modelId, currentlyEnabled) {
