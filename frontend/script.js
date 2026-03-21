@@ -162,8 +162,14 @@ async function checkLoggedIn() {
                 showFullKey(fullKey || localStorage.getItem(STORAGE_FULL_KEY));
             }
             await fetchUsage(fp); // Use the fingerprint we already fetched
+        } else if (response.status === 404) {
+            // Key not found on server - clear local storage to allow regeneration
+            console.log('Key not found on server, clearing local storage.');
+            localStorage.removeItem(STORAGE_FULL_KEY);
+            localStorage.removeItem(STORAGE_KEY_PREFIX);
+            showNoKeyView();
         } else {
-            // FALLBACK: If server doesn't find key by IP/FP, check if we have it in localStorage
+            // OTHER ERROR (500, etc.): FALLBACK to localStorage if we have it
             const savedFullKey = localStorage.getItem(STORAGE_FULL_KEY);
             const savedPrefix = localStorage.getItem(STORAGE_KEY_PREFIX);
             

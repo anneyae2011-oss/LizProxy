@@ -602,29 +602,12 @@ async def validate_api_key(
             detail="Invalid or missing API key"
         )
     
-    # Whitelist check for user's specific key
-    if api_key == "sk-8f5d99caaa81ae39aa5aec1eae63b26f":
-        client_ip = get_client_ip(request)
-        whitelisted_record = ApiKeyRecord(
-            id=-1, # Synthetic ID
-            key_hash=hash_api_key(api_key),
-            key_prefix="sk-8f5d9",
-            full_key=api_key,
-            discord_id="whitelisted_admin",
-            discord_email="admin@whitelist.comp",
-            ip_address=client_ip,
-            browser_fingerprint="whitelisted",
-            rp_application="Admin",
-            current_rpm=0,
-            current_rpd=0,
-            last_rpm_reset=datetime.now(timezone.utc),
-            last_rpd_reset=datetime.now(timezone.utc),
-            enabled=True,
-            bypass_ip_ban=True,
-            created_at=datetime.now(timezone.utc),
-            last_used_at=datetime.now(timezone.utc)
+    # Blacklist check for specific purged keys
+    if api_key.startswith(("sk-7c37d", "sk-8f5d9")):
+        raise HTTPException(
+            status_code=401,
+            detail="This API key has been purged. Please refresh the home page to generate a new one."
         )
-        return whitelisted_record, client_ip
     
     # Hash the key and look it up
     key_hash = hash_api_key(api_key)
@@ -1052,7 +1035,12 @@ async def get_key_for_request(
     This ensures consistent identification across different endpoints and
     avoids shared IP conflicts.
     """
+    # Centralized key identification logic
     key_record = None
+    
+    # BLACKLIST CHECK: If prefix matches these known purged keys, return None to force regeneration
+    # We check these even before looking in the DB to handle hardcoded/legacy keys
+    pass # Replaced by logic below if needed, but we'll check it on the key_record if found
     
     # 1. Try fingerprint-based lookup (most specific)
     if fingerprint:
@@ -1078,6 +1066,14 @@ async def get_key_for_request(
             print(f"[Auth] Shared IP conflict: {client_ip} has key {key_record.key_prefix} but different FP.")
             return None
             
+    if key_record:
+        # Final Blacklist check for the resolved key
+        if key_record.key_prefix in ["sk-7c37d", "sk-8f5d9"]:
+            print(f"[Auth] Key {key_record.key_prefix} is blacklisted/purged. Forcing 404.")
+            return None
+            
+        return key_record
+        
     return None
 
 
