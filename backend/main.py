@@ -1033,7 +1033,7 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         
         path = request.url.path
-        if path.startswith("/static/") or path.startswith("/admin") or path == "/":
+        if path.startswith("/static/") or path.startswith("/admin") or path.startswith("/api/") or path == "/":
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
@@ -1041,6 +1041,45 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(NoCacheMiddleware)
+
+
+async def get_key_for_request(
+    db: "Database", client_ip: str, fingerprint: Optional[str] = None
+) -> Optional[ApiKeyRecord]:
+    """Helper to find an API key by priority: 1) Fingerprint, 2) IP fallback.
+    
+    This ensures consistent identification across different endpoints and
+    avoids shared IP conflicts.
+    """
+    key_record = None
+    
+    # 1. Try fingerprint-based lookup (most specific)
+    if fingerprint:
+        key_record = await db.get_key_by_fingerprint(fingerprint)
+        if key_record:
+            # If IP changed but fingerprint matched, update IP for this key
+            if key_record.ip_address != client_ip:
+                print(f"[Auth] IP migration: Key {key_record.key_prefix} moved to {client_ip} (Fingerprint match)")
+                await db.update_key_ip(key_record.id, client_ip)
+            return key_record
+            
+    # 2. Try IP-based lookup (fallback)
+    key_record = await db.get_key_by_ip(client_ip)
+    if key_record:
+        # VALIDATION: Only return the IP's key if it matches this fingerprint OR has no fingerprint set yet
+        if not key_record.browser_fingerprint or key_record.browser_fingerprint == fingerprint:
+            # Update fingerprint if it was missing but is now provided
+            if fingerprint and not key_record.browser_fingerprint:
+                await db.update_key_fingerprint(key_record.id, fingerprint)
+            return key_record
+        else:
+            # Shared IP conflict: The IP has a key, but it belongs to a different fingerprint.
+            print(f"[Auth] Shared IP conflict: {client_ip} has key {key_record.key_prefix} but different FP.")
+            return None
+            
+    return None
+
+
 # ==================== Static File Serving ====================
 
 # Mount static files for CSS and JS (must be before route definitions)
@@ -1078,38 +1117,14 @@ async def generate_key_endpoint(
         await db.delete_disabled_keys_by_fingerprint(fingerprint)
     await db.delete_disabled_keys_by_ip(client_ip)
     
-    # 1. Check if fingerprint matches an existing key (Persistent Identification)
-    if fingerprint:
-        fingerprint_key = await db.get_key_by_fingerprint(fingerprint)
-        if fingerprint_key:
-            # Update the IP address to the new one if it changed
-            if fingerprint_key.ip_address != client_ip:
-                print(f"[Auth] Device migration: Key {fingerprint_key.key_prefix} moved to {client_ip}")
-                await db.update_key_ip(fingerprint_key.id, client_ip)
-            return KeyGenerationResponse(
-                key=fingerprint_key.full_key,
-                key_prefix=fingerprint_key.key_prefix,
-                message="Your API key has been restored for this device."
-            )
-    
-    # 2. Check if IP already has a key (Legacy/Fallback Identification)
-    existing_key = await db.get_key_by_ip(client_ip)
+    # 1. Try to find an existing key for this device
+    existing_key = await get_key_for_request(db, client_ip, fingerprint)
     if existing_key:
-        # VALIDATION: Only return the IP's key if it matches this fingerprint OR has no fingerprint
-        # This prevents User B from getting User A's key on a shared IP.
-        if not existing_key.browser_fingerprint or existing_key.browser_fingerprint == fingerprint:
-            # Update fingerprint if provided and not set
-            if fingerprint and not existing_key.browser_fingerprint:
-                await db.update_key_fingerprint(existing_key.id, fingerprint)
-            return KeyGenerationResponse(
-                key=existing_key.full_key,
-                key_prefix=existing_key.key_prefix,
-                message="Your API key is shown below."
-            )
-        else:
-            # Shared IP conflict: The IP has a key, but it belongs to a different fingerprint.
-            # We will fall through to generate a NEW unique key for THIS fingerprint.
-            print(f"[Auth] Shared IP detected for {client_ip}. Generating unique key for new device fingerprint.")
+        return KeyGenerationResponse(
+            key=existing_key.full_key,
+            key_prefix=existing_key.key_prefix,
+            message="Your API key has been restored for this device."
+        )
     
     # Abuse protection: limit keys per IP
     max_keys = (settings.max_keys_per_ip if settings else 2)
@@ -1175,25 +1190,8 @@ async def get_my_key(
         await db.delete_disabled_keys_by_fingerprint(fingerprint)
     await db.delete_disabled_keys_by_ip(client_ip)
 
-    # PRIORITIZE FINGERPRINT: On shared cloud IPs (Zeabur), IP lookup is unreliable.
-    key_record = None
-    
-    if fingerprint:
-        key_record = await db.get_key_by_fingerprint(fingerprint)
-        if key_record:
-            # If IP changed but fingerprint matched, update IP for this key
-            if key_record.ip_address != client_ip:
-                print(f"[Auth] IP migration: Key {key_record.key_prefix} moved from {key_record.ip_address} to {client_ip} (Fingerprint match)")
-                await db.update_key_ip(key_record.id, client_ip)
-    
-    # Fallback to IP only if no fingerprint match
-    if not key_record:
-        key_record = await db.get_key_by_ip(client_ip)
-        if key_record and fingerprint and key_record.browser_fingerprint and key_record.browser_fingerprint != fingerprint:
-            # CRISIS: IP lookup found a key, but it belongs to a DIFFERENT fingerprint!
-            # This happens on shared proxy IPs. We MUST NOT return this key to the wrong user.
-            print(f"[Auth] Shared IP conflict: IP {client_ip} has key {key_record.key_prefix} (FP: {key_record.browser_fingerprint}) but requester has FP: {fingerprint}. ACCESS DENIED.")
-            key_record = None # Force 404/Generate view
+    # Use centralized helper to identify the user
+    key_record = await get_key_for_request(db, client_ip, fingerprint)
     
     if not key_record:
         raise HTTPException(
@@ -1231,19 +1229,21 @@ async def get_my_key(
 )
 async def get_my_usage(
     request: Request,
+    fingerprint: Optional[str] = None,
     client_ip: str = Depends(check_ip_ban),
 ) -> UsageResponse:
-    """Get usage statistics for the API key associated with the requesting IP.
+    """Get usage statistics for the API key associated with the requesting IP or fingerprint.
     
     Returns:
         UsageResponse with current rate limit status and total token usage.
     """
-    # Get key for this IP
-    key_record = await db.get_key_by_ip(client_ip)
+    # Use centralized helper to identify the user
+    key_record = await get_key_for_request(db, client_ip, fingerprint)
+    
     if not key_record:
         raise HTTPException(
             status_code=404,
-            detail="No API key found for your IP address"
+            detail="No API key found for your device. Please generate one first."
         )
     
     # Ensure counters are fresh (reset if past day boundary)
@@ -1617,6 +1617,7 @@ async def _handle_streaming_request(
                 
                 # Success - increment daily request count (RPD)
                 # (Proactive RPM increment already happened in proxy_chat_completions)
+                print(f"[Auth] Incrementing RPD for key {key_record.key_prefix}")
                 await db.increment_rpd_only(key_record.id)
                 
                 # True streaming - forward each chunk immediately
@@ -1810,6 +1811,7 @@ async def _handle_non_streaming_request(
         
         # Success - increment daily request count (RPD)
         if response.status_code == 200:
+            print(f"[Auth] Incrementing RPD for key {key_record.key_prefix}")
             await db.increment_rpd_only(key_record.id)
         
         return JSONResponse(

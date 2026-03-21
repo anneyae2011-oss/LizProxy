@@ -522,7 +522,15 @@ class SQLiteDatabase(Database):
 
     async def get_key_by_ip(self, ip_address: str) -> Optional[ApiKeyRecord]:
         conn = await self._get_connection()
-        cursor = await conn.execute("SELECT * FROM api_keys WHERE ip_address = ? ORDER BY enabled DESC, created_at DESC", (ip_address,))
+        # Prioritize enabled keys, then keys without fingerprints (easier to claim/fallback),
+        # then most recently used/created.
+        query = """
+            SELECT * FROM api_keys 
+            WHERE ip_address = ? 
+            ORDER BY enabled DESC, (browser_fingerprint IS NULL) DESC, last_used_at DESC, created_at DESC 
+            LIMIT 1
+        """
+        cursor = await conn.execute(query, (ip_address,))
         row = await cursor.fetchone()
         return self._row_to_api_key(row) if row else None
 
@@ -716,13 +724,13 @@ class SQLiteDatabase(Database):
         cursor = await conn.execute("""
             SELECT COUNT(*) as total_requests, SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_requests,
                    COALESCE(SUM(tokens_used), 0) as total_tokens
-            FROM usage_logs WHERE api_key_id = ?
+            FROM usage_logs WHERE api_key_id = ? AND model != 'models'
         """, (key_id,))
         total_row = await cursor.fetchone()
         
         cursor = await conn.execute("""
             SELECT COUNT(*) as requests_today, COALESCE(SUM(tokens_used), 0) as tokens_today
-            FROM usage_logs WHERE api_key_id = ? AND DATE(request_time) = DATE('now')
+            FROM usage_logs WHERE api_key_id = ? AND DATE(request_time) = DATE('now') AND model != 'models'
         """, (key_id,))
         today_row = await cursor.fetchone()
         
@@ -1154,7 +1162,15 @@ class PostgreSQLDatabase(Database):
     async def get_key_by_ip(self, ip_address: str) -> Optional[ApiKeyRecord]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM api_keys WHERE ip_address = $1 ORDER BY enabled DESC, created_at DESC LIMIT 1", ip_address)
+            # Prioritize enabled keys, then keys without fingerprints (easier to claim/fallback),
+            # then most recently used/created.
+            query = """
+                SELECT * FROM api_keys 
+                WHERE ip_address = $1 
+                ORDER BY enabled DESC, (browser_fingerprint IS NULL) DESC, last_used_at DESC, created_at DESC 
+                LIMIT 1
+            """
+            row = await conn.fetchrow(query, ip_address)
             return self._row_to_api_key(row) if row else None
 
     async def get_key_by_fingerprint(self, fingerprint: str) -> Optional[ApiKeyRecord]:
@@ -1355,7 +1371,7 @@ class PostgreSQLDatabase(Database):
             """, key_id)
             today_row = await conn.fetchrow("""
                 SELECT COUNT(*) as requests_today, COALESCE(SUM(tokens_used), 0) as tokens_today
-                FROM usage_logs WHERE api_key_id = $1 AND DATE(request_time) = CURRENT_DATE
+                FROM usage_logs WHERE api_key_id = $1 AND DATE(request_time) = CURRENT_DATE AND model != 'models'
             """, key_id)
             return UsageStats(
                 total_requests=total_row["total_requests"] or 0, successful_requests=total_row["successful_requests"] or 0,

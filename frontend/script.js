@@ -161,7 +161,7 @@ async function checkLoggedIn() {
             if (fullKey || localStorage.getItem(STORAGE_FULL_KEY)) {
                 showFullKey(fullKey || localStorage.getItem(STORAGE_FULL_KEY));
             }
-            await fetchUsage();
+            await fetchUsage(fp); // Use the fingerprint we already fetched
         } else {
             // FALLBACK: If server doesn't find key by IP/FP, check if we have it in localStorage
             const savedFullKey = localStorage.getItem(STORAGE_FULL_KEY);
@@ -173,7 +173,7 @@ async function checkLoggedIn() {
                 currentKeyPrefix = savedPrefix;
                 showHasKeyView();
                 showFullKey(savedFullKey);
-                await fetchUsage();
+                await fetchUsage(fp); // Still try with current fp
             } else {
                 showNoKeyView();
             }
@@ -195,10 +195,13 @@ async function checkLoggedIn() {
 
 /**
  * Fetch and display usage statistics
+ * @param {string} fingerprint - Optional hardware fingerprint to identify the key
  */
-async function fetchUsage() {
+async function fetchUsage(fingerprint = null) {
     try {
-        const response = await fetch('/api/my-usage');
+        // Use provided fingerprint or fetch it
+        const fp = fingerprint || await getHardwareFingerprint();
+        const response = await fetch('/api/my-usage?fingerprint=' + encodeURIComponent(fp));
         
         if (response.ok) {
             const data = await response.json();
