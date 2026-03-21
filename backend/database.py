@@ -230,6 +230,16 @@ class Database(ABC):
         pass
     
     @abstractmethod
+    async def increment_rpm_only(self, key_id: int) -> int:
+        """Increment only the RPM counter. Returns the new RPM."""
+        pass
+    
+    @abstractmethod
+    async def increment_rpd_only(self, key_id: int) -> int:
+        """Increment only the daily request counter (RPD). Returns the new RPD."""
+        pass
+    
+    @abstractmethod
     async def reset_rpm(self, key_id: int) -> None:
         pass
     
@@ -621,6 +631,28 @@ class SQLiteDatabase(Database):
         cursor = await conn.execute("SELECT current_rpm, current_rpd FROM api_keys WHERE id = ?", (key_id,))
         row = await cursor.fetchone()
         return (row["current_rpm"], row["current_rpd"]) if row else (0, 0)
+
+    async def increment_rpm_only(self, key_id: int) -> int:
+        conn = await self._get_connection()
+        await conn.execute(
+            "UPDATE api_keys SET current_rpm = current_rpm + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (key_id,)
+        )
+        await conn.commit()
+        cursor = await conn.execute("SELECT current_rpm FROM api_keys WHERE id = ?", (key_id,))
+        row = await cursor.fetchone()
+        return row["current_rpm"] if row else 0
+
+    async def increment_rpd_only(self, key_id: int) -> int:
+        conn = await self._get_connection()
+        await conn.execute(
+            "UPDATE api_keys SET current_rpd = current_rpd + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (key_id,)
+        )
+        await conn.commit()
+        cursor = await conn.execute("SELECT current_rpd FROM api_keys WHERE id = ?", (key_id,))
+        row = await cursor.fetchone()
+        return row["current_rpd"] if row else 0
 
     async def reset_rpm(self, key_id: int) -> None:
         conn = await self._get_connection()
@@ -1226,6 +1258,24 @@ class PostgreSQLDatabase(Database):
                 key_id
             )
             return (row["current_rpm"], row["current_rpd"]) if row else (0, 0)
+
+    async def increment_rpm_only(self, key_id: int) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "UPDATE api_keys SET current_rpm = current_rpm + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING current_rpm",
+                key_id
+            )
+            return row["current_rpm"] if row else 0
+
+    async def increment_rpd_only(self, key_id: int) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "UPDATE api_keys SET current_rpd = current_rpd + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING current_rpd",
+                key_id
+            )
+            return row["current_rpd"] if row else 0
 
     async def reset_rpm(self, key_id: int) -> None:
         pool = await self._get_pool()

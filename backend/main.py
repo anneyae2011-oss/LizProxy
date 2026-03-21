@@ -394,15 +394,15 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-async def check_and_update_rate_limits(
+async def check_rate_limits(
     key_record: ApiKeyRecord,
     database: "Database",
     estimated_tokens: int = 0,
 ) -> RateLimitResult:
-    """Check rate limits for an API key and update counters if allowed.
+    """Check rate limits for an API key.
     
     Enforces RPM (requests per minute) and daily token quota (REQUESTS_PER_DAY_LIMIT).
-    Uses atomic increment for request count; token usage is summed from usage_logs.
+    This function ONLY performs the check and does NOT increment counters.
     
     Args:
         key_record: The API key record to check.
@@ -448,10 +448,6 @@ async def check_and_update_rate_limits(
         )
     
     # Check daily token limit (tokens per day, not request count)
-    # Only check against *actual* tokens used so far — don't pre-reject based on
-    # estimated_tokens, because the estimate (input + max_output) is a worst-case
-    # upper bound that would block users who haven't used any tokens yet if they
-    # send a large context.  Actual usage is recorded after the request completes.
     if current_rpd >= REQUESTS_PER_DAY_LIMIT:
         midnight_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         retry_after = int((midnight_utc - now).total_seconds())
@@ -461,13 +457,10 @@ async def check_and_update_rate_limits(
             retry_after=retry_after,
         )
     
-    # Request is allowed - atomically increment request counters
-    new_rpm, new_rpd = await database.increment_usage(key_record.id)
-    
     return RateLimitResult(
         allowed=True,
-        new_rpm=new_rpm,
-        new_rpd=new_rpd,
+        new_rpm=current_rpm,
+        new_rpd=current_rpd,
     )
 
 
@@ -1379,11 +1372,14 @@ async def proxy_chat_completions(
             detail=f"Request exceeds maximum context limit of {max_context} tokens"
         )
     
-    # Check rate limits (pass estimated tokens for daily token quota: input + max output)
+    # Check rate limits (proactive check only)
     estimated_tokens = token_count + (await get_max_output_tokens())
-    rate_result = await check_and_update_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
+    rate_result = await check_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
     if not rate_result.allowed:
         return create_rate_limit_response(rate_result)
+    
+    # Proactively increment RPM to prevent rapid-fire abuse
+    await db.increment_rpm_only(key_record.id)
     
     # CSAM-only moderation check BEFORE forwarding to provider
     moderation_result = await check_content_moderation(
@@ -1522,6 +1518,10 @@ async def _handle_streaming_request(
                     yield f"data: {json_module.dumps(error_response)}\n\n".encode('utf-8')
                     yield b"data: [DONE]\n\n"
                     return
+                
+                # Success - increment daily request count (RPD)
+                # (Proactive RPM increment already happened in proxy_chat_completions)
+                await db.increment_rpd_only(key_record.id)
                 
                 # True streaming - forward each chunk immediately
                 async for chunk in response.aiter_bytes():
@@ -1683,6 +1683,10 @@ async def _handle_non_streaming_request(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
+        
+        # Success - increment daily request count (RPD)
+        if response.status_code == 200:
+            await db.increment_rpd_only(key_record.id)
         
         return JSONResponse(
             status_code=response.status_code,
