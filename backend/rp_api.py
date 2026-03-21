@@ -15,6 +15,16 @@ from backend.database import Database, RpUser, RpBot, RpOc, RpChat
 
 rp_router = APIRouter(prefix="/api/rp", tags=["lizrp"])
 
+
+def normalize_target_api_url(target_api_url: str) -> str:
+    """Normalize upstream URL to include /v1 and no trailing slash."""
+    url = (target_api_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    if url.endswith("/v1"):
+        return url
+    return f"{url}/v1"
+
 # --- Helpers ---
 def bot_to_dict(bot: RpBot) -> Dict[str, Any]:
     d = dataclasses.asdict(bot)
@@ -92,6 +102,7 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     avatar: Optional[str] = None
+    bio: Optional[str] = None
 
 class LoginRequest(BaseModel):
     username: str
@@ -104,6 +115,7 @@ class TokenResponse(BaseModel):
 class ProfileUpdate(BaseModel):
     username: str
     avatar: Optional[str] = None
+    bio: Optional[str] = None
 
 class BotCreate(BaseModel):
     name: str = Field(..., max_length=100)
@@ -145,7 +157,7 @@ async def register(req: RegisterRequest, request: Request):
     user_id = str(uuid.uuid4())
     pw_hash = hash_password(req.password)
     
-    success = await db.create_rp_user(user_id, req.username, pw_hash, req.avatar)
+    success = await db.create_rp_user(user_id, req.username, pw_hash, req.avatar, req.bio)
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user")
         
@@ -169,6 +181,7 @@ async def get_profile(current_user: RpUser = Depends(get_current_user)):
         "id": current_user.id,
         "username": current_user.username,
         "avatar": current_user.avatar,
+        "bio": current_user.bio,
         "created_at": current_user.created_at
     }
 
@@ -182,7 +195,7 @@ async def update_profile(req: ProfileUpdate, request: Request, current_user: RpU
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
             
-    success = await db.update_rp_user_profile(current_user.id, req.username, req.avatar)
+    success = await db.update_rp_user_profile(current_user.id, req.username, req.avatar, req.bio)
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update profile")
         
@@ -446,7 +459,7 @@ async def chat_completions(req: ChatCompletionsRequest, request: Request, curren
     # Actually, it's safer if the frontend manages the history via PUT /chats/{chat_id}
     # For now, let's just stream the response.
 
-    target_url = config.target_api_url.rstrip("/") + "/chat/completions"
+    target_url = normalize_target_api_url(config.target_api_url) + "/chat/completions"
     headers = {
         "Authorization": f"Bearer {config.target_api_key}",
         "Content-Type": "application/json"

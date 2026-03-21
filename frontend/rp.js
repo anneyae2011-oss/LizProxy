@@ -16,6 +16,9 @@ let currentChatMessages = [];
 let currentWallpaperBase64 = null;
 let pendingModalBase64 = { bot: null, oc: null, user: null };
 let pendingImageBase64 = null;
+let allBots = [];
+let filteredBots = [];
+let isStartingChat = false;
 
 // DOM Elements
 const botsGrid = document.getElementById('bots-grid');
@@ -73,39 +76,8 @@ function initEventListeners() {
         }
     });
 
-    // Authentication Forms
-    const authForm = document.getElementById('auth-form');
-    if (authForm) {
-        authForm.addEventListener('submit', handleAuthSubmit);
-    }
-
-    // Bot/OC Creation Forms
-    const createBotForm = document.getElementById('create-bot-form');
-    if (createBotForm) {
-        createBotForm.addEventListener('submit', handleBotSubmit);
-    }
-
-    const ocForm = document.getElementById('oc-form');
-    if (ocForm) {
-        ocForm.addEventListener('submit', handleOcSubmit);
-    }
-
-    // Admin Forms
-    const adminAuthForm = document.getElementById('admin-auth-form');
-    if (adminAuthForm) {
-        adminAuthForm.addEventListener('submit', handleAdminAuth);
-    }
-
-    const adminConfigForm = document.getElementById('admin-config-form');
-    if (adminConfigForm) {
-        adminConfigForm.addEventListener('submit', handleAdminConfigSubmit);
-    }
-    
-    // User Profile Edit Form
-    const profileForm = document.getElementById('profile-edit-form');
-    if (profileForm) {
-        profileForm.addEventListener('submit', handleProfileUpdate);
-    }
+    // Form submissions are handled via inline onsubmit handlers in rp.html.
+    // Avoid duplicate listeners here because they trigger duplicate API calls.
 }
 
 async function initRP() {
@@ -159,6 +131,10 @@ function showView(viewName) {
 
     // Update Bottom Nav active state
     updateBottomNav(viewName);
+    const rpMain = document.getElementById('rp-main-content');
+    if (rpMain) {
+        rpMain.classList.toggle('chat-active', viewName === 'chat-interface');
+    }
 
     // Refresh data if needed
     if (viewName === 'home') loadDiscoveryHub();
@@ -354,21 +330,14 @@ async function loadDiscoveryHub() {
         if (res.ok) {
             const data = await res.json();
             const bots = data.bots;
+            allBots = bots;
+            filteredBots = bots;
             
             if (bots.length === 0) {
                 grid.innerHTML = '<div class="info-text">No characters found yet.</div>';
                 return;
             }
-            
-            grid.innerHTML = bots.map(bot => `
-                <div class="bot-card" onclick="openBotView('${bot.id}')">
-                    <img src="${bot.avatar || '/static/default-bot.png'}" loading="lazy" alt="${escapeHtml(bot.name)}" onerror="this.src='/static/default-bot.png'">
-                    <div class="bot-card-info">
-                        <span class="bot-card-name">${escapeHtml(bot.name)}</span>
-                        <span class="bot-card-creator">by ${escapeHtml(bot.creator_name || 'System')}</span>
-                    </div>
-                </div>
-            `).join('');
+            renderBotsGrid(bots);
         } else {
             const error = await res.json();
             grid.innerHTML = `<div class="error-text">Failed to load: ${error.detail}</div>`;
@@ -451,11 +420,19 @@ async function openBotView(botId) {
 // ===================================
 
 async function startNewChat() {
-    if (!currentBotId || !currentUser) {
-        if (!currentUser) showView('profile');
+    if (isStartingChat) return;
+    if (!currentBotId) {
+        showToast('Select a character first.', 'info');
         return;
     }
-    
+    if (!currentUser) {
+        showToast('Please sign in to start a conversation.', 'info');
+        showView('profile');
+        return;
+    }
+    isStartingChat = true;
+    const startBtn = document.getElementById('start-chat-btn');
+    if (startBtn) startBtn.disabled = true;
     const token = localStorage.getItem(RP_TOKEN_KEY);
     try {
         const res = await fetch('/api/rp/chats', {
@@ -469,10 +446,16 @@ async function startNewChat() {
         
         if (res.ok) {
             const chat = await res.json();
-            loadChatHistory(chat.id);
+            await loadChatHistory(chat.id);
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Failed to start chat', 'error');
         }
     } catch (e) {
         showToast("Failed to start chat", "error");
+    } finally {
+        isStartingChat = false;
+        if (startBtn) startBtn.disabled = false;
     }
 }
 
@@ -697,12 +680,16 @@ async function handleBotSubmit(e) {
 async function handleOcSubmit(e) {
     e.preventDefault();
     const token = localStorage.getItem(RP_TOKEN_KEY);
+    const description = document.getElementById('oc-description').value.trim();
+    const personality = document.getElementById('oc-personality').value.trim();
+    const lore = document.getElementById('oc-lore').value.trim();
     
     const payload = {
-        name: document.getElementById('oc-name').value,
-        avatar: pendingModalBase64.oc,
-        description: document.getElementById('oc-description').value,
-        personality: document.getElementById('oc-personality').value
+        name: (description.split(/\s+/).slice(0, 4).join(' ') || 'My Persona').slice(0, 100),
+        avatar: null,
+        description,
+        lore,
+        personality
     };
 
     try {
@@ -713,11 +700,17 @@ async function handleOcSubmit(e) {
         });
         
         if (res.ok) {
-            showToast('OC Persona Created!', 'success');
+            showToast('Persona saved!', 'success');
             closeModal('oc-modal');
+            e.target.reset();
             loadUserContent();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Failed to save persona', 'error');
         }
-    } catch(e){}
+    } catch(e) {
+        showToast('Network error while saving persona', 'error');
+    }
 }
 
 async function handleProfileSubmit(e) {
@@ -725,7 +718,8 @@ async function handleProfileSubmit(e) {
     const token = localStorage.getItem(RP_TOKEN_KEY);
     const payload = {
         username: document.getElementById('profile-username').value.trim(),
-        avatar: pendingModalBase64.user || currentUser.avatar
+        avatar: pendingModalBase64.user || currentUser.avatar,
+        bio: document.getElementById('profile-bio')?.value.trim() || null
     };
 
     try {
@@ -786,9 +780,9 @@ async function handleAdminConfigSubmit(e) {
     const payload = {
         target_api_url: document.getElementById('admin-api-url').value,
         target_api_key: document.getElementById('admin-api-key').value,
-        max_context: parseInt(document.getElementById('admin-max-context').value),
-        max_output_tokens: parseInt(document.getElementById('admin-max-output').value),
-        max_keys_per_ip: parseInt(document.getElementById('admin-max-keys-ip').value)
+        max_context: parseInt(document.getElementById('admin-max-context').value, 10) || 4096,
+        max_output_tokens: parseInt(document.getElementById('admin-max-output').value, 10) || 1024,
+        max_keys_per_ip: parseInt(document.getElementById('admin-max-keys-ip').value, 10) || 20
     };
     try {
         const res = await fetch('/admin/config', {
@@ -919,6 +913,73 @@ function handleChatKeydown(e) {
         e.preventDefault();
         sendMessage();
     }
+}
+
+function showProfileModal() {
+    if (!currentUser) {
+        showToast('Please sign in first.', 'info');
+        showLoginModal();
+        return;
+    }
+    const usernameInput = document.getElementById('profile-username');
+    const bioInput = document.getElementById('profile-bio');
+    if (usernameInput) {
+        usernameInput.value = currentUser.username || '';
+    }
+    if (bioInput) {
+        bioInput.value = currentUser.bio || '';
+    }
+    const preview = document.getElementById('profile-avatar-preview');
+    const placeholder = document.getElementById('profile-avatar-placeholder');
+    if (preview && currentUser.avatar) {
+        preview.src = currentUser.avatar;
+        preview.classList.remove('hidden');
+        if (placeholder) placeholder.classList.add('hidden');
+    } else if (preview) {
+        preview.classList.add('hidden');
+        if (placeholder) placeholder.classList.remove('hidden');
+    }
+    openModal('profile-modal');
+}
+
+function showOcModal() {
+    if (!currentUser) {
+        showToast('Please sign in first.', 'info');
+        showLoginModal();
+        return;
+    }
+    openModal('oc-modal');
+}
+
+function renderBotsGrid(bots) {
+    const grid = document.getElementById('bots-grid');
+    if (!grid) return;
+    if (!bots || bots.length === 0) {
+        grid.innerHTML = '<div class="info-text">No matching characters found.</div>';
+        return;
+    }
+    grid.innerHTML = bots.map(bot => `
+        <div class="bot-card" onclick="openBotView('${bot.id}')">
+            <img src="${bot.avatar || '/static/default-bot.png'}" loading="lazy" alt="${escapeHtml(bot.name)}" onerror="this.src='/static/default-bot.png'">
+            <div class="bot-card-info">
+                <span class="bot-card-name">${escapeHtml(bot.name)}</span>
+                <span class="bot-card-creator">by ${escapeHtml(bot.creator_name || 'System')}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function handleBotSearch(query) {
+    const term = (query || '').trim().toLowerCase();
+    filteredBots = !term
+        ? allBots
+        : allBots.filter(bot =>
+            (bot.name || '').toLowerCase().includes(term) ||
+            (bot.description || '').toLowerCase().includes(term) ||
+            (bot.creator_name || '').toLowerCase().includes(term) ||
+            (bot.tags || '').toLowerCase().includes(term)
+        );
+    renderBotsGrid(filteredBots);
 }
 
 function triggerCardImport() {

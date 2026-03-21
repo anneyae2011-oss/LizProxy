@@ -136,6 +136,7 @@ class RpUser:
     username: str
     password_hash: str
     avatar: Optional[str]
+    bio: Optional[str]
     created_at: datetime
 
 @dataclass
@@ -447,7 +448,7 @@ class Database(ABC):
     
     # RP Users
     @abstractmethod
-    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None) -> bool: pass
+    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None, bio: Optional[str] = None) -> bool: pass
     
     @abstractmethod
     async def get_rp_user_by_username(self, username: str) -> Optional[RpUser]: pass
@@ -456,7 +457,7 @@ class Database(ABC):
     async def get_rp_user_by_id(self, id: str) -> Optional[RpUser]: pass
     
     @abstractmethod
-    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str]) -> bool: pass
+    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str], bio: Optional[str] = None) -> bool: pass
     
     # RP Bots
     @abstractmethod
@@ -648,9 +649,16 @@ class SQLiteDatabase(Database):
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 avatar TEXT,
+                bio TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migration: add bio column if missing.
+        rp_user_cols = await conn.execute("PRAGMA table_info(rp_users)")
+        rp_user_col_rows = await rp_user_cols.fetchall()
+        rp_user_col_names = {row[1] for row in rp_user_col_rows}
+        if "bio" not in rp_user_col_names:
+            await conn.execute("ALTER TABLE rp_users ADD COLUMN bio TEXT")
         
         # LizRP Bots
         await conn.execute("""
@@ -1180,10 +1188,13 @@ class SQLiteDatabase(Database):
         await conn.commit()
         
     # RP Users
-    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None) -> bool:
+    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None, bio: Optional[str] = None) -> bool:
         conn = await self._get_connection()
         try:
-            await conn.execute("INSERT INTO rp_users (id, username, password_hash, avatar) VALUES (?, ?, ?, ?)", (id, username, password_hash, avatar))
+            await conn.execute(
+                "INSERT INTO rp_users (id, username, password_hash, avatar, bio) VALUES (?, ?, ?, ?, ?)",
+                (id, username, password_hash, avatar, bio),
+            )
             await conn.commit()
             return True
         except aiosqlite.IntegrityError:
@@ -1192,7 +1203,7 @@ class SQLiteDatabase(Database):
     async def _row_to_rp_user(self, row) -> RpUser:
         return RpUser(
             id=row["id"], username=row["username"], password_hash=row["password_hash"],
-            avatar=row["avatar"], created_at=self._parse_ts(row["created_at"])
+            avatar=row["avatar"], bio=row["bio"], created_at=self._parse_ts(row["created_at"])
         )
         
     async def get_rp_user_by_username(self, username: str) -> Optional[RpUser]:
@@ -1207,10 +1218,13 @@ class SQLiteDatabase(Database):
         row = await cursor.fetchone()
         return await self._row_to_rp_user(row) if row else None
         
-    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str]) -> bool:
+    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str], bio: Optional[str] = None) -> bool:
         conn = await self._get_connection()
         try:
-            cursor = await conn.execute("UPDATE rp_users SET username = ?, avatar = ? WHERE id = ?", (username, avatar, id))
+            cursor = await conn.execute(
+                "UPDATE rp_users SET username = ?, avatar = ?, bio = ? WHERE id = ?",
+                (username, avatar, bio, id),
+            )
             await conn.commit()
             return cursor.rowcount > 0
         except aiosqlite.IntegrityError:
@@ -1561,9 +1575,17 @@ class PostgreSQLDatabase(Database):
                     username TEXT UNIQUE NOT NULL,
                     password_hash TEXT NOT NULL,
                     avatar TEXT,
+                    bio TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Migration: add bio column if missing
+            rp_user_cols = await conn.fetch("""
+                SELECT column_name FROM information_schema.columns WHERE table_name = 'rp_users'
+            """)
+            rp_user_col_names = {r["column_name"] for r in rp_user_cols}
+            if "bio" not in rp_user_col_names:
+                await conn.execute("ALTER TABLE rp_users ADD COLUMN bio TEXT")
             
             # LizRP Bots
             await conn.execute("""
@@ -2162,11 +2184,14 @@ class PostgreSQLDatabase(Database):
             await conn.execute("DELETE FROM model_aliases WHERE model_id = $1", model_id)
             
     # RP Users
-    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None) -> bool:
+    async def create_rp_user(self, id: str, username: str, password_hash: str, avatar: Optional[str] = None, bio: Optional[str] = None) -> bool:
         pool = await self._get_pool()
         try:
             async with pool.acquire() as conn:
-                await conn.execute("INSERT INTO rp_users (id, username, password_hash, avatar) VALUES ($1, $2, $3, $4)", id, username, password_hash, avatar)
+                await conn.execute(
+                    "INSERT INTO rp_users (id, username, password_hash, avatar, bio) VALUES ($1, $2, $3, $4, $5)",
+                    id, username, password_hash, avatar, bio,
+                )
                 return True
         except asyncpg.UniqueViolationError:
             return False
@@ -2174,7 +2199,9 @@ class PostgreSQLDatabase(Database):
     def _row_to_rp_user(self, row) -> RpUser:
         return RpUser(
             id=row["id"], username=row["username"], password_hash=row["password_hash"],
-            avatar=self._safe_get(row, "avatar"), created_at=row["created_at"]
+            avatar=self._safe_get(row, "avatar"),
+            bio=self._safe_get(row, "bio"),
+            created_at=row["created_at"]
         )
         
     async def get_rp_user_by_username(self, username: str) -> Optional[RpUser]:
@@ -2189,11 +2216,14 @@ class PostgreSQLDatabase(Database):
             row = await conn.fetchrow("SELECT * FROM rp_users WHERE id = $1", id)
             return self._row_to_rp_user(row) if row else None
             
-    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str]) -> bool:
+    async def update_rp_user_profile(self, id: str, username: str, avatar: Optional[str], bio: Optional[str] = None) -> bool:
         pool = await self._get_pool()
         try:
             async with pool.acquire() as conn:
-                result = await conn.execute("UPDATE rp_users SET username = $1, avatar = $2 WHERE id = $3", username, avatar, id)
+                result = await conn.execute(
+                    "UPDATE rp_users SET username = $1, avatar = $2, bio = $3 WHERE id = $4",
+                    username, avatar, bio, id,
+                )
                 return result == "UPDATE 1"
         except asyncpg.UniqueViolationError:
             return False

@@ -13,6 +13,7 @@
     --rp-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     --navbar-height: 64px;
     --bottom-nav-height: 70px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ===== Base Reset ===== */
@@ -127,8 +128,12 @@ body {
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: var(--bottom-nav-height);
+    padding-bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
     scroll-behavior: smooth;
+}
+
+.rp-main.chat-active {
+    padding-bottom: 0;
 }
 
 /* Ensure view panels fill available height */
@@ -141,6 +146,119 @@ body {
 
 .view-panel.active-view {
     display: flex;
+}
+
+#bot-profile-view,
+#chat-interface {
+    height: 100%;
+    min-height: 0;
+}
+
+#chat-interface {
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-header {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.72rem 0.85rem;
+    background: rgba(10, 10, 14, 0.75);
+    border-bottom: 1px solid var(--rp-glass-border);
+}
+
+.chat-bot-info {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+}
+
+.chat-bot-details h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 170px;
+}
+
+.creator-tag {
+    font-size: 0.75rem;
+    color: var(--rp-text-dim);
+}
+
+.profile-card-full {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border-radius: 0;
+}
+
+.profile-header-wide {
+    position: relative;
+    min-height: 32vh;
+    max-height: 40vh;
+}
+
+.profile-header-wide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.profile-content-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.95rem;
+}
+
+.profile-info-overlay {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 1.6rem 0.95rem 0.85rem;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.35), transparent);
+}
+
+.profile-info-overlay h2 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.profile-info-overlay p {
+    margin: 0.18rem 0 0;
+    font-size: 0.78rem;
+    color: var(--rp-text-dim);
+}
+
+.profile-section h4 {
+    margin: 0 0 0.45rem;
+    color: var(--rp-secondary);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+}
+
+.profile-section p {
+    margin: 0;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.profile-actions-sticky {
+    position: sticky;
+    bottom: 0;
+    padding: 0.7rem 0 calc(0.25rem + var(--safe-bottom));
+    margin-top: 0.7rem;
+    background: linear-gradient(to top, rgba(10, 10, 14, 0.95), rgba(10, 10, 14, 0.7), transparent);
+}
+
+#start-chat-btn {
+    width: 100%;
 }
 
 @keyframes fadeIn {
@@ -160,7 +278,7 @@ body {
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     z-index: 100;
-    padding: 0 4px;
+    padding: 0 4px calc(2px + var(--safe-bottom));
     /* Remove position:absolute — it's part of the flex column now */
 }
 
@@ -210,7 +328,7 @@ body {
 
 /* ===== Discovery Hub ===== */
 #view-home {
-    padding: 1rem;
+    padding: 0.9rem;
 }
 
 .hub-header {
@@ -253,7 +371,7 @@ body {
 .bots-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    gap: 12px;
 }
 
 @media (max-width: 360px) {
@@ -267,7 +385,7 @@ body {
     position: relative;
     border-radius: 16px;
     overflow: hidden;
-    aspect-ratio: 2/3;
+    aspect-ratio: 3/4;
     background: #1a1a1f;
     border: 1px solid var(--rp-glass-border);
     cursor: pointer;
@@ -298,7 +416,7 @@ body {
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 1.5rem 0.8rem 0.8rem;
+    padding: 1.2rem 0.75rem 0.7rem;
     background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 60%, transparent 100%);
     display: flex;
     flex-direction: column;
@@ -423,7 +541,7 @@ body {
 
 /* ===== Profile View ===== */
 #view-profile {
-    padding: 1.5rem 1rem 2rem;
+    padding: 1.2rem 0.9rem 2rem;
 }
 
 .profile-page-header {
@@ -471,7 +589,7 @@ body {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--rp-glass-border);
     border-radius: 14px;
-    padding: 1rem;
+    padding: 0.9rem 0.95rem;
     text-align: left;
     color: white;
     font-size: 0.95rem;
@@ -487,7 +605,7 @@ body {
 .menu-item:hover,
 .menu-item:active {
     background: rgba(255, 255, 255, 0.08);
-    transform: translateX(4px);
+    transform: translateX(2px);
 }
 
 .menu-item.highlight {
@@ -517,8 +635,8 @@ body {
     flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 1rem;
-    padding-bottom: 1rem; /* Input is in-flow now */
+    padding: 0.9rem 0.85rem;
+    padding-bottom: 0.7rem;
     display: flex;
     flex-direction: column;
     gap: 1.2rem;
@@ -527,10 +645,10 @@ body {
 
 .chat-bubble {
     max-width: 85%;
-    padding: 0.9rem 1.1rem;
+    padding: 0.75rem 0.92rem;
     border-radius: 18px;
-    font-size: 0.9rem;
-    line-height: 1.5;
+    font-size: 0.88rem;
+    line-height: 1.45;
     position: relative;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     word-break: break-word;
@@ -552,7 +670,7 @@ body {
 
 .chat-input-area {
     flex: 0 0 auto;
-    padding: 0.6rem 0.8rem;
+    padding: 0.55rem 0.75rem calc(0.5rem + var(--safe-bottom));
     background: var(--rp-glass-heavy);
     border-top: 1px solid var(--rp-glass-border);
     backdrop-filter: blur(20px);
@@ -562,10 +680,10 @@ body {
 .input-wrapper {
     display: flex;
     align-items: flex-end;
-    gap: 10px;
+    gap: 8px;
     background: rgba(255, 255, 255, 0.05);
-    border-radius: 22px;
-    padding: 6px 10px;
+    border-radius: 18px;
+    padding: 5px 9px;
     border: 1px solid var(--rp-glass-border);
 }
 
@@ -573,9 +691,21 @@ body {
     background: none;
     border: none;
     padding: 6px 4px;
-    max-height: 120px;
+    max-height: 100px;
     resize: none;
-    font-size: 0.9rem;
+    font-size: 0.87rem;
+}
+
+.send-btn {
+    min-height: 34px;
+    padding: 0.42rem 0.8rem;
+    border-radius: 12px;
+}
+
+.attachment-btn {
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 10px;
 }
 
 /* ===== Buttons ===== */
@@ -641,10 +771,10 @@ body {
     border-radius: 24px 24px 0 0;
     width: 100%;
     max-width: 600px;
-    max-height: 90vh;
+    max-height: 86vh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 1.5rem;
+    padding: 1.2rem 1rem calc(1rem + var(--safe-bottom));
     animation: slideUp 0.3s ease;
 }
 
@@ -655,6 +785,14 @@ body {
 
 /* ===== Utilities ===== */
 .hidden { display: none !important; }
+
+.section-label {
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--rp-secondary);
+    margin: 0.9rem 0 0.5rem;
+}
 
 .info-text {
     color: var(--rp-text-dim);

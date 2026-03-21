@@ -861,16 +861,26 @@ async def get_target_api_config() -> Tuple[str, str]:
     # First try database config
     config = await db.get_config()
     if config:
-        return config.target_api_url, config.target_api_key
+        return normalize_target_api_url(config.target_api_url), config.target_api_key
     
     # Fall back to settings
     if settings:
-        return settings.target_api_url, settings.target_api_key
+        return normalize_target_api_url(settings.target_api_url), settings.target_api_key
     
     raise HTTPException(
         status_code=500,
         detail="Proxy not configured"
     )
+
+
+def normalize_target_api_url(target_api_url: str) -> str:
+    """Normalize upstream URL to include /v1 and no trailing slash."""
+    url = (target_api_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    if url.endswith("/v1"):
+        return url
+    return f"{url}/v1"
 
 
 async def verify_admin_password(
@@ -2341,7 +2351,7 @@ async def admin_get_config(
             masked_key = "***"
         
         return ConfigResponse(
-            target_api_url=config.target_api_url,
+            target_api_url=normalize_target_api_url(config.target_api_url),
             target_api_key_masked=masked_key,
             max_context=config.max_context,
             max_output_tokens=config.max_output_tokens,
@@ -2357,7 +2367,7 @@ async def admin_get_config(
             masked_key = "***"
         
         return ConfigResponse(
-            target_api_url=settings.target_api_url,
+            target_api_url=normalize_target_api_url(settings.target_api_url),
             target_api_key_masked=masked_key,
             max_context=settings.max_context,
             max_output_tokens=settings.max_output_tokens,
@@ -2408,7 +2418,10 @@ async def admin_update_config(
             detail="Proxy not configured"
         )
     
-    await db.update_config(target_url, target_key, max_context, max_output_tokens)
+    normalized_target_url = normalize_target_api_url(target_url)
+    if not normalized_target_url:
+        raise HTTPException(status_code=400, detail="target_api_url cannot be empty")
+    await db.update_config(normalized_target_url, target_key, max_context, max_output_tokens)
     return {"message": "Configuration updated successfully"}
 
 

@@ -574,7 +574,6 @@ function displayKeys(keys) {
     if (!keys || keys.length === 0) {
         keysTbody.innerHTML = '';
         noKeysMessage.classList.remove('hidden');
-        displayPendingApplications([]);
         return;
     }
 

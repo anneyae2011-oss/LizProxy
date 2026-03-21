@@ -292,8 +292,14 @@
     <!-- User Profile Settings Modal -->
     <div id="profile-modal" class="modal hidden">
         <div class="modal-content card slide-in">
-            <h2>User Profile</h2>
+            <h2>Edit Profile</h2>
             <form id="profile-form" onsubmit="handleProfileSubmit(event)">
+                <h4 class="section-label">Edit Bio</h4>
+                <div class="form-group">
+                    <label>Bio</label>
+                    <textarea id="profile-bio" class="modern-textarea" rows="3" placeholder="Tell people about yourself..."></textarea>
+                </div>
+                <h4 class="section-label">Change Profile</h4>
                 <div class="avatar-upload-container">
                     <img id="profile-avatar-preview" src="" class="avatar-preview hidden">
                     <div id="profile-avatar-placeholder" class="avatar-placeholder">Upload Avatar</div>
@@ -317,37 +323,24 @@
     <!-- Create/Edit OC Modal -->
     <div id="oc-modal" class="modal hidden">
         <div class="modal-content card slide-in large-modal">
-            <h2 id="oc-modal-title">Create OC (Persona)</h2>
-            <p class="subtitle" style="margin-bottom: 1.5rem;">Create an Original Character to roleplay as.</p>
+            <h2 id="oc-modal-title">Manage Persona</h2>
+            <p class="subtitle" style="margin-bottom: 1.5rem;">Create the persona you want to roleplay as.</p>
             <form id="oc-form" onsubmit="handleOcSubmit(event)">
-                <div class="form-row">
-                    <div class="form-col" style="flex: 1;">
-                        <div class="avatar-upload-container">
-                            <img id="oc-avatar-preview" src="" class="avatar-preview hidden">
-                            <div id="oc-avatar-placeholder" class="avatar-placeholder">Upload Avatar</div>
-                            <input type="file" id="oc-avatar-upload" accept="image/*" class="hidden" onchange="handleAvatarChange(event, 'oc')">
-                            <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('oc-avatar-upload').click()">Choose Image</button>
-                        </div>
-                        <div class="form-group">
-                            <label>Name</label>
-                            <input type="text" id="oc-name" required class="input-modern" placeholder="Your OC Name">
-                        </div>
-                    </div>
-                    <div class="form-col" style="flex: 2;">
-                        <div class="form-group">
-                            <label>Physical Description</label>
-                            <textarea id="oc-description" class="modern-textarea" rows="3" placeholder="What your character looks like."></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Persona Elements (Lore/Personality)</label>
-                            <textarea id="oc-personality" class="modern-textarea" rows="5" placeholder="Background and traits that the AI should know about you."></textarea>
-                        </div>
-                    </div>
+                <div class="form-group">
+                    <label>Lore</label>
+                    <textarea id="oc-lore" class="modern-textarea" rows="4" placeholder="Backstory, world, and context..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="oc-description" class="modern-textarea" rows="4" placeholder="Describe your persona..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Personality</label>
+                    <textarea id="oc-personality" class="modern-textarea" rows="4" placeholder="Traits, tone, and behavior..."></textarea>
                 </div>
                 <div id="oc-error" class="status-message error hidden"></div>
                 <div class="modal-actions" style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 1rem;">
-                    <button type="button" class="btn btn-ghost" onclick="closeModal('oc-modal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="oc-submit-btn">Save OC</button>
+                    <button type="submit" class="btn btn-primary" id="oc-submit-btn">Save</button>
                 </div>
             </form>
             <button onclick="closeModal('oc-modal')" class="close-modal-btn">✕</button>
