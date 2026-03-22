@@ -343,6 +343,21 @@ class Database(ABC):
         """Enable all models by clearing the exclusion list."""
         pass
     
+    @abstractmethod
+    async def get_model_aliases(self) -> dict:
+        """Return a mapping of model ID to its alias."""
+        pass
+
+    @abstractmethod
+    async def set_model_alias(self, model_id: str, alias: str) -> None:
+        """Set or update an alias for a model."""
+        pass
+
+    @abstractmethod
+    async def delete_model_alias(self, model_id: str) -> bool:
+        """Delete an alias for a model. Returns True if was aliased."""
+        pass
+    
     # Content flag operations
     @abstractmethod
     async def create_content_flag(
@@ -516,6 +531,13 @@ class SQLiteDatabase(Database):
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS models_exclusion (
                 model_id TEXT PRIMARY KEY
+            )
+        """)
+        
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_aliases (
+                model_id TEXT PRIMARY KEY,
+                alias TEXT NOT NULL
             )
         """)
         
@@ -906,6 +928,29 @@ class SQLiteDatabase(Database):
         await conn.execute("DELETE FROM models_exclusion")
         await conn.commit()
 
+    async def get_model_aliases(self) -> dict:
+        conn = await self._get_connection()
+        cursor = await conn.execute("SELECT model_id, alias FROM model_aliases")
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    async def set_model_alias(self, model_id: str, alias: str) -> None:
+        conn = await self._get_connection()
+        if not alias:
+            await self.delete_model_alias(model_id)
+        else:
+            await conn.execute("""
+                INSERT INTO model_aliases (model_id, alias) VALUES (?, ?)
+                ON CONFLICT (model_id) DO UPDATE SET alias = excluded.alias
+            """, (model_id, alias))
+        await conn.commit()
+
+    async def delete_model_alias(self, model_id: str) -> bool:
+        conn = await self._get_connection()
+        cursor = await conn.execute("DELETE FROM model_aliases WHERE model_id = ?", (model_id,))
+        await conn.commit()
+        return cursor.rowcount > 0
+
     def _row_to_api_key(self, row) -> ApiKeyRecord:
         return ApiKeyRecord(
             id=row["id"], key_hash=row["key_hash"], key_prefix=row["key_prefix"],
@@ -1177,6 +1222,21 @@ class PostgreSQLDatabase(Database):
                     reviewed_at TIMESTAMP
                 )
             """)
+            
+            # Model management tables
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS models_exclusion (
+                    model_id TEXT PRIMARY KEY
+                )
+            """)
+            
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS model_aliases (
+                    model_id TEXT PRIMARY KEY,
+                    alias TEXT NOT NULL
+                )
+            """)
+
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_key ON content_flags(api_key_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_reviewed ON content_flags(reviewed)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_content_flags_hash ON content_flags(full_message_hash)")
@@ -1522,6 +1582,40 @@ class PostgreSQLDatabase(Database):
                 INSERT INTO banned_ips (ip_address, reason, banned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
                 ON CONFLICT (ip_address) DO UPDATE SET reason = $2, banned_at = CURRENT_TIMESTAMP
             """, ip_address, reason)
+
+    async def include_model(self, model_id: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM models_exclusion WHERE model_id = $1", model_id)
+            return result == "DELETE 1"
+
+    async def clear_excluded_models(self) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM models_exclusion")
+
+    async def get_model_aliases(self) -> dict:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT model_id, alias FROM model_aliases")
+            return {row["model_id"]: row["alias"] for row in rows}
+
+    async def set_model_alias(self, model_id: str, alias: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if not alias:
+                await self.delete_model_alias(model_id)
+            else:
+                await conn.execute("""
+                    INSERT INTO model_aliases (model_id, alias) VALUES ($1, $2)
+                    ON CONFLICT (model_id) DO UPDATE SET alias = EXCLUDED.alias
+                """, model_id, alias)
+
+    async def delete_model_alias(self, model_id: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM model_aliases WHERE model_id = $1", model_id)
+            return result == "DELETE 1"
 
     async def unban_ip(self, ip_address: str) -> bool:
         pool = await self._get_pool()
