@@ -1053,7 +1053,12 @@ async function loadModels() {
         } else if (response.status === 401) {
             logout();
         } else {
-            document.getElementById('models-tbody').innerHTML = `<tr><td colspan="4" class="loading-cell">Failed to load models.</td></tr>`;
+            let errorMsg = "Failed to load models.";
+            try {
+                const errData = await response.json();
+                if (errData.detail) errorMsg = errData.detail;
+            } catch (e) { }
+            document.getElementById('models-tbody').innerHTML = `<tr><td colspan="4" class="loading-cell" style="color:var(--danger-color);">${escapeHtml(errorMsg)}</td></tr>`;
         }
     } catch (error) {
         logToConsole(`Error loading models: ${error.message}`, 'error');
