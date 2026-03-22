@@ -15,8 +15,8 @@
         rel="stylesheet">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css?v=20260321">
-    <link rel="stylesheet" href="/static/admin.css?v=20260321">
+    <link rel="stylesheet" href="/static/style.css?v=20260322">
+    <link rel="stylesheet" href="/static/admin.css?v=20260322">
     <style>
         /* Toggle Switch Fallback */
         .switch { position: relative; display: inline-block; width: 40px; height: 20px; vertical-align: middle; }
@@ -215,6 +215,40 @@
             </form>
         </section>
 
+        <!-- Model Management Section -->
+        <section class="admin-section card">
+            <div class="section-header">
+                <h2>Model Management</h2>
+                <div class="header-actions">
+                    <button onclick="bulkModelAction('enable_all')" class="btn btn-ghost btn-sm">Enable All</button>
+                    <button onclick="bulkModelAction('disable_all')" class="btn btn-danger btn-sm">Disable All</button>
+                    <button onclick="loadModels()" class="btn btn-ghost btn-sm">Refresh</button>
+                </div>
+            </div>
+            
+            <p class="form-hint" style="margin-bottom: var(--space-sm);">
+                Toggle models to allow or deny access. Disabled models will not be returned in the <code>/v1/models</code> endpoint and cannot be used for chat completions.
+            </p>
+
+            <div class="table-container scrollable-table" id="models-table-container">
+                <table id="models-table" class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Model ID</th>
+                            <th>Status</th>
+                            <th>Alias (Optional)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="models-tbody">
+                        <tr>
+                            <td colspan="4" class="loading-cell">Loading models...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- Rate Limit Reset Section -->
         <section class="admin-section card">
             <div class="section-header">
@@ -322,7 +356,7 @@
     </main>
 
     <!-- Scripts -->
-    <script src="/static/admin.js?v=20260321"></script>
+    <script src="/static/admin.js?v=20260322"></script>
 </body>
 
 </html>

@@ -255,6 +255,7 @@ async function loadAllData() {
         loadBannedIps(),
         loadRequestLogs(),
         loadTopRequests(),
+        loadModels(),
     ]);
 }
 
@@ -1038,6 +1039,152 @@ async function purgeAllKeys() {
     }
 }
 
+
+// ===================================
+// Model Management
+// ===================================
+
+async function loadModels() {
+    try {
+        const response = await adminFetch('/admin/models');
+        if (response.ok) {
+            const data = await response.json();
+            renderModelsTable(data.models);
+        } else if (response.status === 401) {
+            logout();
+        } else {
+            document.getElementById('models-tbody').innerHTML = `<tr><td colspan="4" class="loading-cell">Failed to load models.</td></tr>`;
+        }
+    } catch (error) {
+        logToConsole(`Error loading models: ${error.message}`, 'error');
+        document.getElementById('models-tbody').innerHTML = `<tr><td colspan="4" class="loading-cell error">Network error loading models.</td></tr>`;
+    }
+}
+
+function renderModelsTable(models) {
+    const tbody = document.getElementById('models-tbody');
+    
+    if (!models || models.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="loading-cell">No upstream models found.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = models.map(m => {
+        const isEnabled = m.enabled;
+        const toggleHtml = `
+            <label class="switch">
+                <input type="checkbox" 
+                    id="toggle-model-${escapeHtml(m.id)}" 
+                    onchange="toggleModel('${escapeHtml(m.id)}', this)" 
+                    ${isEnabled ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        `;
+        
+        return `
+            <tr>
+                <td class="key-cell"><code>${escapeHtml(m.id)}</code></td>
+                <td>
+                    <div class="toggle-group">
+                        ${toggleHtml}
+                        <span id="model-status-${escapeHtml(m.id)}" class="${isEnabled ? 'status-active' : 'status-revoked'}">
+                            ${isEnabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                }
+                </td>
+                <td>
+                    <input type="text" class="form-control" style="width: 150px; padding: 4px; font-size: 0.85rem;" 
+                           placeholder="Custom alias..." 
+                           value="${escapeAttr(m.alias || '')}" 
+                           onchange="updateModelAlias('${escapeHtml(m.id)}', this.value)">
+                </td>
+                <td>
+                    ${isEnabled ? `<span style="color:var(--text-secondary);font-size:0.8rem;">Available for chat</span>` : `<span style="color:var(--danger-color);font-size:0.8rem;">Blocked</span>`}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function toggleModel(modelId, checkbox) {
+    const enabled = checkbox.checked;
+    const statusSpan = document.getElementById(`model-status-${modelId}`);
+    
+    // Optimistic UI update
+    if (statusSpan) {
+        statusSpan.textContent = enabled ? 'Enabled' : 'Disabled';
+        statusSpan.className = enabled ? 'status-active' : 'status-revoked';
+    }
+
+    try {
+        const response = await adminFetch('/admin/models/toggle', {
+            method: 'POST',
+            body: JSON.stringify({ model_id: modelId, enabled: enabled })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}`);
+        }
+        
+        const data = await response.json();
+        logToConsole(`Model ${modelId} ${enabled ? 'enabled' : 'disabled'}`, 'info');
+        loadModels(); // Refresh to ensure sync
+    } catch (error) {
+        logToConsole(`Failed to toggle model: ${error.message}`, 'error');
+        // Revert UI on failure
+        checkbox.checked = !enabled;
+        if (statusSpan) {
+            statusSpan.textContent = !enabled ? 'Enabled' : 'Disabled';
+            statusSpan.className = !enabled ? 'status-active' : 'status-revoked';
+        }
+        showAdminStatus("Failed to toggle model", "error");
+    }
+}
+
+async function bulkModelAction(action) {
+    if (action === 'disable_all' && !confirm("Are you sure you want to disable ALL models? Users won't be able to chat until you enable them again.")) {
+        return;
+    }
+
+    try {
+        const response = await adminFetch('/admin/models/bulk-action', {
+            method: 'POST',
+            body: JSON.stringify({ action: action })
+        });
+
+        if (response.ok) {
+            logToConsole(`Bulk action ${action} completed`, 'success');
+            showAdminStatus(`Models ${action === 'enable_all' ? 'enabled' : 'disabled'}`, 'success');
+            loadModels();
+        } else {
+            throw new Error(`Server returned ${response.status}`);
+        }
+    } catch (error) {
+        logToConsole(`Failed bulk action ${action}: ${error.message}`, 'error');
+        showAdminStatus(`Error during bulk action`, 'error');
+    }
+}
+
+async function updateModelAlias(modelId, alias) {
+    try {
+        const response = await adminFetch('/admin/models/alias', {
+            method: 'POST',
+            body: JSON.stringify({ model_id: modelId, alias: alias })
+        });
+
+        if (response.ok) {
+            logToConsole(`Alias updated for ${modelId}`, 'success');
+            showAdminStatus("Alias updated", "success");
+        } else {
+            throw new Error(`Server returned ${response.status}`);
+        }
+    } catch (error) {
+        logToConsole(`Failed to update alias: ${error.message}`, 'error');
+        showAdminStatus(`Error updating alias`, 'error');
+        loadModels(); // Revert
+    }
+}
 
 // ===================================
 // Utility Functions
