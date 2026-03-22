@@ -748,11 +748,14 @@ class SQLiteDatabase(Database):
 
     async def get_daily_tokens_used_all(self, since_utc: str, until_utc: str) -> dict[int, int]:
         conn = await self._get_connection()
+        since_str = since_utc.replace("T", " ") if "T" in since_utc else since_utc
+        until_str = until_utc.replace("T", " ") if "T" in until_utc else until_utc
+        
         cursor = await conn.execute("""
             SELECT api_key_id, COALESCE(SUM(tokens_used), 0) as tokens_sum FROM usage_logs
             WHERE request_time >= ? AND request_time < ?
             GROUP BY api_key_id
-        """, (since_utc, until_utc))
+        """, (since_str, until_str))
         rows = await cursor.fetchall()
         return {row[0]: int(row[1]) for row in rows}
 
