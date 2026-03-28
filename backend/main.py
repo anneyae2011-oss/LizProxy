@@ -1676,31 +1676,31 @@ async def _handle_streaming_request(
                     try:
                         chunk_str = decoder.decode(chunk, final=False)
                         if chunk_str:
-                             # Process each line in the decoded string
-                             for line in chunk_str.split('\n'):
-                                 if line.startswith('data: ') and line != 'data: [DONE]':
-                                     data_str = line[6:]
-                                if data_str.strip():
-                                    try:
-                                        data = json_module.loads(data_str)
-                                        # Count tokens from delta content
-                                        if 'choices' in data:
-                                            for choice in data['choices']:
-                                                delta = choice.get('delta', {})
-                                                content = delta.get('content', '')
-                                                if content:
-                                                    # Rough estimate: 1 token ≈ 4 chars
-                                                    chunk_tokens += max(1, len(content) // 4)
-                                        # Extract final usage stats
-                                        if 'usage' in data:
-                                            input_tokens_actual = data['usage'].get('prompt_tokens', token_count)
-                                            output_tokens = data['usage'].get('completion_tokens', 0)
-                                            total_tokens = data['usage'].get('total_tokens', token_count)
-                                        if 'error' in data:
-                                            error_message = data['error'].get('message') or str(data['error'])
-                                            stream_success = False
-                                    except json_module.JSONDecodeError:
-                                        pass
+                            # Process each line in the decoded string
+                            for line in chunk_str.split('\n'):
+                                if line.startswith('data: ') and line != 'data: [DONE]':
+                                    data_str = line[6:]
+                                    if data_str.strip():
+                                        try:
+                                            data = json_module.loads(data_str)
+                                            # Count tokens from delta content
+                                            if 'choices' in data:
+                                                for choice in data['choices']:
+                                                    delta = choice.get('delta', {})
+                                                    content = delta.get('content', '')
+                                                    if content:
+                                                        # Rough estimate: 1 token ≈ 4 chars
+                                                        chunk_tokens += max(1, len(content) // 4)
+                                            # Extract final usage stats
+                                            if 'usage' in data:
+                                                input_tokens_actual = data['usage'].get('prompt_tokens', token_count)
+                                                output_tokens = data['usage'].get('completion_tokens', 0)
+                                                total_tokens = data['usage'].get('total_tokens', token_count)
+                                            if 'error' in data:
+                                                error_message = data['error'].get('message') or str(data['error'])
+                                                stream_success = False
+                                        except json_module.JSONDecodeError:
+                                            pass
                     except UnicodeDecodeError:
                         chunk_tokens = 1  # Assume at least 1 token for binary chunks
                     
