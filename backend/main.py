@@ -2362,6 +2362,7 @@ async def admin_get_config(
             max_context=settings.max_context,
             max_output_tokens=settings.max_output_tokens,
             max_keys_per_ip=settings.max_keys_per_ip,
+            fallback_api_keys=settings.fallback_api_keys
         )
     
     raise HTTPException(
@@ -2413,7 +2414,7 @@ async def admin_update_config(
     normalized_target_url = normalize_target_api_url(target_url)
     if not normalized_target_url:
         raise HTTPException(status_code=400, detail="target_api_url cannot be empty")
-    await db.update_config(normalized_target_url, target_key, max_context, max_output_tokens)
+    await db.update_config(normalized_target_url, target_key, max_context, max_output_tokens, fallback_api_keys)
     return {"message": "Configuration updated successfully"}
 
 
