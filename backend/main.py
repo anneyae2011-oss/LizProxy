@@ -1584,9 +1584,9 @@ async def _proxy_chat_completions_impl(
             client_ip=client_ip,
         )
     except HTTPException as he:
-        # Catch 402 Payment Required and trigger key rotation
-        if he.status_code == 402:
-            print(f"[Fallback] 402 error detected for key prefix {key_record.key_prefix}. Rotating upstream key...")
+        # Catch 403 Forbidden and trigger key rotation
+        if he.status_code == 403:
+            print(f"[Fallback] 403 error detected for key prefix {key_record.key_prefix}. Rotating upstream key...")
             rotated = await db.rotate_target_key()
             if rotated:
                 # Retry the request ONCE with the new key
@@ -1641,7 +1641,7 @@ async def _handle_emulated_streaming_request(
     emulated_body = request_body.copy()
     emulated_body["stream"] = False
     
-    # 1. Fetch full response BEFORE the generator to catch 402
+    # 1. Fetch full response BEFORE the generator to catch 403
     response = await http_client.post(
         f"{target_url}/chat/completions",
         headers={
@@ -1653,8 +1653,8 @@ async def _handle_emulated_streaming_request(
         timeout=60.0
     )
     
-    if response.status_code == 402:
-        raise HTTPException(status_code=402, detail="Upstream 402")
+    if response.status_code == 403:
+        raise HTTPException(status_code=403, detail="Upstream 403")
     
     async def emulated_generator() -> AsyncGenerator[bytes, None]:
         try:
@@ -1775,7 +1775,7 @@ async def _handle_streaming_request(
         StreamingResponse that forwards the target API's stream.
     """
     # 1. Open the stream and check status BEFORE returning StreamingResponse
-    # This allows catching 402 for rotation
+    # This allows catching 403 for rotation
     response = await http_client.post(
         f"{target_url}/chat/completions",
         headers={
@@ -1787,9 +1787,9 @@ async def _handle_streaming_request(
         stream=True
     )
     
-    if response.status_code == 402:
+    if response.status_code == 403:
         await response.aclose()
-        raise HTTPException(status_code=402, detail="Upstream 402")
+        raise HTTPException(status_code=403, detail="Upstream 403")
         
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         output_tokens = 0
@@ -2006,9 +2006,9 @@ async def _handle_non_streaming_request(
                 error_message=f"Upstream returned non-JSON: {error_text}",
             )
             
-            if response.status_code == 402:
+            if response.status_code == 403:
                 # Raise HTTPException so proxy_chat_completions can handle rotation
-                raise HTTPException(status_code=402, detail="Upstream returned 402 Payment Required")
+                raise HTTPException(status_code=403, detail="Upstream returned 403 Forbidden")
 
             return JSONResponse(
                 status_code=502 if response.status_code == 200 else response.status_code,
