@@ -1678,8 +1678,8 @@ async def _handle_streaming_request(
                         if chunk_str:
                              # Process each line in the decoded string
                              for line in chunk_str.split('\n'):
-                            if line.startswith('data: ') and line != 'data: [DONE]':
-                                data_str = line[6:]
+                                 if line.startswith('data: ') and line != 'data: [DONE]':
+                                     data_str = line[6:]
                                 if data_str.strip():
                                     try:
                                         data = json_module.loads(data_str)
