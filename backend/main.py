@@ -273,7 +273,7 @@ RPM_LIMIT = 4
 RPD_LIMIT = 100  # Request count (display only; daily limit is request-based)
 REQUESTS_PER_DAY_LIMIT = 100  # Daily request quota per key (enforced)
 RPM_WINDOW_SECONDS = 60
-MAX_TOKENS_PER_SECOND = 35  # Maximum tokens per second for streaming
+MAX_TOKENS_PER_SECOND = 100  # Maximum tokens per second for streaming (increased from 35)
 
 
 # ==================== Helper Functions ====================
@@ -1675,11 +1675,9 @@ async def _handle_streaming_request(
                     chunk_tokens = 0
                     try:
                         chunk_str = decoder.decode(chunk, final=False)
-                        if not chunk_str:
-                            continue
-                            
-                        # Process each line in the decoded string
-                        for line in chunk_str.split('\n'):
+                        if chunk_str:
+                             # Process each line in the decoded string
+                             for line in chunk_str.split('\n'):
                             if line.startswith('data: ') and line != 'data: [DONE]':
                                 data_str = line[6:]
                                 if data_str.strip():
