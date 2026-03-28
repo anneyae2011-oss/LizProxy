@@ -1537,6 +1537,19 @@ async def _proxy_chat_completions_impl(
         
         # Handle streaming response
         if chat_request.stream:
+            # Special case: Wenwen AI streaming is often broken (returns empty content)
+            # We use emulation to ensure a stable experience while keeping the typing effect
+            if "wenwen-ai.com" in target_url:
+                print(f"[Proxy] Using streaming emulation for {target_url}")
+                return await _handle_emulated_streaming_request(
+                    target_url=target_url,
+                    target_key=target_key,
+                    request_body=request_body,
+                    key_record=key_record,
+                    token_count=token_count,
+                    client_ip=client_ip,
+                )
+            
             return await _handle_streaming_request(
                 target_url=target_url,
                 target_key=target_key,
@@ -1572,6 +1585,128 @@ async def _proxy_chat_completions_impl(
                 }
             }
         )
+
+
+async def _handle_emulated_streaming_request(
+    target_url: str,
+    target_key: str,
+    request_body: Dict[str, Any],
+    key_record: ApiKeyRecord,
+    token_count: int,
+    client_ip: str,
+):
+    """Handles streaming by fetching the full response and emulating a stream."""
+    import json as json_module
+    import time
+    import asyncio
+    
+    # Ensure upstream request is NOT streaming
+    emulated_body = request_body.copy()
+    emulated_body["stream"] = False
+    
+    async def emulated_generator() -> AsyncGenerator[bytes, None]:
+        try:
+            # 1. Fetch full response
+            async with http_client.post(
+                f"{target_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {target_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                },
+                json=emulated_body,
+                timeout=60.0
+            ) as response:
+                if response.status_code != 200:
+                    error_data = await response.aread()
+                    yield f"data: {error_data.decode('utf-8', errors='replace')}\n\n".encode('utf-8')
+                    yield b"data: [DONE]\n\n"
+                    return
+                
+                full_data = response.json()
+                
+            # 2. Extract content and usage
+            choices = full_data.get("choices", [])
+            if not choices:
+                yield b"data: {\"error\": {\"message\": \"Upstream returned empty choices\"}}\n\n"
+                yield b"data: [DONE]\n\n"
+                return
+                
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+            finish_reason = choices[0].get("finish_reason", "stop")
+            id_str = full_data.get("id", f"chatcmpl-{secrets.token_hex(12)}")
+            model = full_data.get("model", emulated_body.get("model"))
+            
+            # 3. Increment RPD
+            await db.increment_rpd_only(key_record.id)
+            
+            # 4. Stream segments of content to emulate typing
+            # We split by words or small chunks
+            words = content.split(' ')
+            accumulated_content = ""
+            
+            for i, word in enumerate(words):
+                # Add space back if not the first word
+                chunk_text = word + (" " if i < len(words) - 1 else "")
+                accumulated_content += chunk_text
+                
+                chunk_data = {
+                    "id": id_str,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": chunk_text},
+                            "finish_reason": None if i < len(words) - 1 else finish_reason
+                        }
+                    ]
+                }
+                yield f"data: {json_module.dumps(chunk_data)}\n\n".encode('utf-8')
+                
+                # Small delay to look like streaming (approx 50-100ms per "word")
+                await asyncio.sleep(0.02) 
+            
+            # 5. Final usage chunk
+            usage_data = {
+                "id": id_str,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [],
+                "usage": full_data.get("usage")
+            }
+            yield f"data: {json_module.dumps(usage_data)}\n\n".encode('utf-8')
+            yield b"data: [DONE]\n\n"
+            
+            # 6. Log final usage
+            await db.log_usage(
+                key_id=key_record.id,
+                model=model,
+                tokens=full_data.get("usage", {}).get("total_tokens", token_count),
+                success=True,
+                ip_address=client_ip,
+                input_tokens=full_data.get("usage", {}).get("prompt_tokens", token_count),
+                output_tokens=full_data.get("usage", {}).get("completion_tokens", 0),
+            )
+            
+        except Exception as e:
+            print(f"[Emulation Error] {e}")
+            error_msg = f"Streaming emulation error: {str(e)}"
+            yield f"data: {json_module.dumps({'error': {'message': error_msg}})}\n\n".encode('utf-8')
+            yield b"data: [DONE]\n\n"
+
+    return StreamingResponse(
+        emulated_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 async def _handle_streaming_request(
