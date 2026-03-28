@@ -122,6 +122,8 @@ class ProxyConfig:
     target_api_key: str
     max_context: int
     max_output_tokens: int
+    fallback_api_keys: str = ""
+    current_key_index: int = 0
 
 
 
@@ -319,7 +321,12 @@ class Database(ABC):
         pass
     
     @abstractmethod
-    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096, fallback_api_keys: str = "") -> None:
+        pass
+    
+    @abstractmethod
+    async def rotate_target_key(self) -> bool:
+        """Rotate to the next API key in the fallback list. Returns True if rotated, False if no more keys."""
         pass
     
     # Model management operations
@@ -493,13 +500,22 @@ class SQLiteDatabase(Database):
                 target_api_key TEXT NOT NULL,
                 max_context INTEGER DEFAULT 128000,
                 max_output_tokens INTEGER DEFAULT 4096,
+                fallback_api_keys TEXT DEFAULT '',
+                current_key_index INTEGER DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        try:
-            await conn.execute("SELECT max_output_tokens FROM proxy_config LIMIT 1")
-        except Exception:
-            await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
+        
+        # Migrations for proxy_config
+        for col, sql in [
+            ("max_output_tokens", "ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096"),
+            ("fallback_api_keys", "ALTER TABLE proxy_config ADD COLUMN fallback_api_keys TEXT DEFAULT ''"),
+            ("current_key_index", "ALTER TABLE proxy_config ADD COLUMN current_key_index INTEGER DEFAULT 0"),
+        ]:
+            try:
+                await conn.execute(f"SELECT {col} FROM proxy_config LIMIT 1")
+            except Exception:
+                await conn.execute(sql)
         
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
@@ -899,12 +915,48 @@ class SQLiteDatabase(Database):
         if not row:
             return None
         max_out = row["max_output_tokens"] if "max_output_tokens" in row.keys() else 4096
-        return ProxyConfig(target_api_url=row["target_api_url"], target_api_key=row["target_api_key"], max_context=row["max_context"], max_output_tokens=max_out)
+        fallback = row["fallback_api_keys"] if "fallback_api_keys" in row.keys() else ""
+        index = row["current_key_index"] if "current_key_index" in row.keys() else 0
+        return ProxyConfig(
+            target_api_url=row["target_api_url"], 
+            target_api_key=row["target_api_key"], 
+            max_context=row["max_context"], 
+            max_output_tokens=max_out,
+            fallback_api_keys=fallback,
+            current_key_index=index
+        )
 
-    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096, fallback_api_keys: str = "") -> None:
         conn = await self._get_connection()
-        await conn.execute("INSERT OR REPLACE INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, updated_at) VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)", (target_url, target_key, max_context, max_output_tokens))
+        await conn.execute("""
+            INSERT OR REPLACE INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, fallback_api_keys, current_key_index, updated_at) 
+            VALUES (1, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+        """, (target_url, target_key, max_context, max_output_tokens, fallback_api_keys))
         await conn.commit()
+
+    async def rotate_target_key(self) -> bool:
+        """Rotate to the next API key in the fallback list."""
+        conn = await self._get_connection()
+        config = await self.get_config()
+        if not config:
+            return False
+            
+        fallback_keys = [k.strip() for k in config.fallback_api_keys.split('\n') if k.strip()]
+        # The split could be by newline or comma. Let's support both.
+        if not fallback_keys and ',' in config.fallback_api_keys:
+             fallback_keys = [k.strip() for k in config.fallback_api_keys.split(',') if k.strip()]
+             
+        total_keys = 1 + len(fallback_keys)
+        
+        if config.current_key_index + 1 >= total_keys:
+            # We already used all keys
+            return False
+            
+        await conn.execute(
+            "UPDATE proxy_config SET current_key_index = current_key_index + 1, updated_at = CURRENT_TIMESTAMP WHERE id = 1"
+        )
+        await conn.commit()
+        return True
 
     async def get_excluded_models(self) -> List[str]:
         conn = await self._get_connection()
@@ -1200,6 +1252,10 @@ class PostgreSQLDatabase(Database):
             config_col_names = {r["column_name"] for r in config_cols}
             if "max_output_tokens" not in config_col_names:
                 await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
+            if "fallback_api_keys" not in config_col_names:
+                await conn.execute("ALTER TABLE proxy_config ADD COLUMN fallback_api_keys TEXT DEFAULT ''")
+            if "current_key_index" not in config_col_names:
+                await conn.execute("ALTER TABLE proxy_config ADD COLUMN current_key_index INTEGER DEFAULT 0")
             
             await conn.execute(
                 "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)"
@@ -1645,16 +1701,48 @@ class PostgreSQLDatabase(Database):
                 target_api_url=row["target_api_url"],
                 target_api_key=row["target_api_key"],
                 max_context=row["max_context"],
-                max_output_tokens=row.get("max_output_tokens", 4096),
+                max_output_tokens=self._safe_get(row, "max_output_tokens", 4096),
+                fallback_api_keys=self._safe_get(row, "fallback_api_keys", ""),
+                current_key_index=self._safe_get(row, "current_key_index", 0),
             )
 
-    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096) -> None:
+    async def update_config(self, target_url: str, target_key: str, max_context: int, max_output_tokens: int = 4096, fallback_api_keys: str = "") -> None:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, updated_at) VALUES (1, $1, $2, $3, $4, CURRENT_TIMESTAMP)
-                ON CONFLICT (id) DO UPDATE SET target_api_url = $1, target_api_key = $2, max_context = $3, max_output_tokens = $4, updated_at = CURRENT_TIMESTAMP
-            """, target_url, target_key, max_context, max_output_tokens)
+                INSERT INTO proxy_config (id, target_api_url, target_api_key, max_context, max_output_tokens, fallback_api_keys, current_key_index, updated_at) 
+                VALUES (1, $1, $2, $3, $4, $5, 0, CURRENT_TIMESTAMP)
+                ON CONFLICT (id) DO UPDATE SET 
+                    target_api_url = $1, 
+                    target_api_key = $2, 
+                    max_context = $3, 
+                    max_output_tokens = $4,
+                    fallback_api_keys = $5,
+                    current_key_index = 0,
+                    updated_at = CURRENT_TIMESTAMP
+            """, target_url, target_key, max_context, max_output_tokens, fallback_api_keys)
+
+    async def rotate_target_key(self) -> bool:
+        """Rotate to the next API key in the fallback list."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            config = await self.get_config()
+            if not config:
+                return False
+                
+            fallback_keys = [k.strip() for k in config.fallback_api_keys.split('\n') if k.strip()]
+            if not fallback_keys and ',' in config.fallback_api_keys:
+                 fallback_keys = [k.strip() for k in config.fallback_api_keys.split(',') if k.strip()]
+                 
+            total_keys = 1 + len(fallback_keys)
+            
+            if config.current_key_index + 1 >= total_keys:
+                return False
+                
+            await conn.execute(
+                "UPDATE proxy_config SET current_key_index = current_key_index + 1, updated_at = CURRENT_TIMESTAMP WHERE id = 1"
+            )
+            return True
 
     async def get_excluded_models(self) -> List[str]:
         pool = await self._get_pool()

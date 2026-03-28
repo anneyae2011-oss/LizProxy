@@ -23,6 +23,8 @@ class Settings:
     database_path: str
     database_url: Optional[str]  # PostgreSQL connection URL
     max_keys_per_ip: int  # Max API keys allowed per IP (abuse protection)
+    fallback_api_keys: str = ""
+    current_key_index: int = 0
 
 
 def load_settings(env_path: Optional[str] = None) -> Settings:
@@ -96,4 +98,6 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         database_path=database_path,
         database_url=database_url,
         max_keys_per_ip=max_keys_per_ip,
+        fallback_api_keys=os.getenv("FALLBACK_API_KEYS", "").strip(),
+        current_key_index=get_int_env("CURRENT_KEY_INDEX", 0)
     )

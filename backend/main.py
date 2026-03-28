@@ -129,8 +129,9 @@ class ConfigResponse(BaseModel):
     target_api_url: str
     target_api_key_masked: str
     max_context: int
-    max_output_tokens: int = 4096  # Max completion tokens per request (stops long outputs)
-    max_keys_per_ip: int = 2  # Abuse protection: max API keys per IP
+    max_output_tokens: int = 4096
+    max_keys_per_ip: int = 2
+    fallback_api_keys: str = ""
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -139,6 +140,7 @@ class ConfigUpdateRequest(BaseModel):
     target_api_key: Optional[str] = None
     max_context: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    fallback_api_keys: Optional[str] = None
 
 
 
@@ -723,7 +725,20 @@ async def get_target_api_config() -> Tuple[str, str]:
     # First try database config
     config = await db.get_config()
     if config:
-        return normalize_target_api_url(config.target_api_url), config.target_api_key
+        url = normalize_target_api_url(config.target_api_url)
+        # current_key_index 0 is the primary key (config.target_api_key)
+        if config.current_key_index == 0:
+            return url, config.target_api_key
+            
+        # Fallback keys (index 1+)
+        fallback_lines = [k.strip() for k in config.fallback_api_keys.split('\n') if k.strip()]
+        if not fallback_lines and ',' in config.fallback_api_keys:
+             fallback_lines = [k.strip() for k in config.fallback_api_keys.split(',') if k.strip()]
+             
+        if 1 <= config.current_key_index <= len(fallback_lines):
+            return url, fallback_lines[config.current_key_index - 1]
+            
+        return url, config.target_api_key
     
     # Fall back to settings
     if settings:
@@ -1568,7 +1583,29 @@ async def _proxy_chat_completions_impl(
             token_count=token_count,
             client_ip=client_ip,
         )
-    except HTTPException:
+    except HTTPException as he:
+        # Catch 402 Payment Required and trigger key rotation
+        if he.status_code == 402:
+            print(f"[Fallback] 402 error detected for key prefix {key_record.key_prefix}. Rotating upstream key...")
+            rotated = await db.rotate_target_key()
+            if rotated:
+                # Retry the request ONCE with the new key
+                print(f"[Fallback] Key rotated successfully. Retrying request...")
+                # We need to re-call the whole logic or just the handler part.
+                # Simplest is to recursive call once with a flag, or just re-run the handler call here.
+                # Let's re-get config and call the handler again.
+                try:
+                    target_url, target_key = await get_target_api_config()
+                    if chat_request.stream:
+                        if "wenwen-ai.com" in target_url:
+                            return await _handle_emulated_streaming_request(target_url, target_key, request_body, key_record, token_count, client_ip)
+                        return await _handle_streaming_request(target_url, target_key, request_body, key_record, token_count, client_ip)
+                    return await _handle_non_streaming_request(target_url, target_key, request_body, key_record, token_count, client_ip)
+                except Exception as retry_err:
+                    print(f"[Fallback] Retry failed after rotation: {retry_err}")
+            else:
+                print(f"[Fallback] No more fallback keys available.")
+        
         # Re-raise HTTP exceptions (e.g. from validate_api_key or rate limits)
         raise
     except Exception as e:
@@ -1604,26 +1641,30 @@ async def _handle_emulated_streaming_request(
     emulated_body = request_body.copy()
     emulated_body["stream"] = False
     
+    # 1. Fetch full response BEFORE the generator to catch 402
+    response = await http_client.post(
+        f"{target_url}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {target_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+        json=emulated_body,
+        timeout=60.0
+    )
+    
+    if response.status_code == 402:
+        raise HTTPException(status_code=402, detail="Upstream 402")
+    
     async def emulated_generator() -> AsyncGenerator[bytes, None]:
         try:
-            # 1. Fetch full response
-            async with http_client.post(
-                f"{target_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {target_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                },
-                json=emulated_body,
-                timeout=60.0
-            ) as response:
-                if response.status_code != 200:
-                    error_data = await response.aread()
-                    yield f"data: {error_data.decode('utf-8', errors='replace')}\n\n".encode('utf-8')
-                    yield b"data: [DONE]\n\n"
-                    return
-                
-                full_data = response.json()
+            if response.status_code != 200:
+                error_data = response.read() # Already read
+                yield f"data: {error_data.decode('utf-8', errors='replace')}\n\n".encode('utf-8')
+                yield b"data: [DONE]\n\n"
+                return
+            
+            full_data = response.json()
                 
             # 2. Extract content and usage
             choices = full_data.get("choices", [])
@@ -1733,14 +1774,28 @@ async def _handle_streaming_request(
     Returns:
         StreamingResponse that forwards the target API's stream.
     """
-    import json as json_module
-    import time
+    # 1. Open the stream and check status BEFORE returning StreamingResponse
+    # This allows catching 402 for rotation
+    response = await http_client.post(
+        f"{target_url}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {target_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+        json=request_body,
+        stream=True
+    )
     
+    if response.status_code == 402:
+        await response.aclose()
+        raise HTTPException(status_code=402, detail="Upstream 402")
+        
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         output_tokens = 0
         total_tokens = token_count
         input_tokens_actual = token_count
-        stream_success = False
+        stream_success = response.status_code == 200
         error_message = None
         
         # TPS rate limiting state
@@ -1748,25 +1803,10 @@ async def _handle_streaming_request(
         last_second = time.monotonic()
         
         try:
-            # Use global client for connection reuse
-            # Explicitly ensure stream is True for the upstream request
-            request_body["stream"] = True
-            
-            async with http_client.stream(
-                "POST",
-                f"{target_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {target_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                },
-                json=request_body,
-            ) as response:
-                stream_success = response.status_code == 200
-                
-                # If non-200 response, forward error immediately
-                if not stream_success:
-                    error_body = await response.aread()
+            # If non-200 response, forward error immediately
+            # (Note: response is already open from above)
+            if not stream_success:
+                error_body = await response.aread()
                     error_text = error_body.decode('utf-8', errors='replace')
                     
                     # Log the full error for debugging
@@ -1966,6 +2006,10 @@ async def _handle_non_streaming_request(
                 error_message=f"Upstream returned non-JSON: {error_text}",
             )
             
+            if response.status_code == 402:
+                # Raise HTTPException so proxy_chat_completions can handle rotation
+                raise HTTPException(status_code=402, detail="Upstream returned 402 Payment Required")
+
             return JSONResponse(
                 status_code=502 if response.status_code == 200 else response.status_code,
                 content={
@@ -2301,6 +2345,7 @@ async def admin_get_config(
             max_context=config.max_context,
             max_output_tokens=config.max_output_tokens,
             max_keys_per_ip=settings.max_keys_per_ip if settings else 2,
+            fallback_api_keys=config.fallback_api_keys
         )
     
     # Fall back to settings
@@ -2352,11 +2397,13 @@ async def admin_update_config(
         target_key = config_update.target_api_key or current_config.target_api_key
         max_context = config_update.max_context if config_update.max_context is not None else current_config.max_context
         max_output_tokens = config_update.max_output_tokens if config_update.max_output_tokens is not None else current_config.max_output_tokens
+        fallback_api_keys = config_update.fallback_api_keys if config_update.fallback_api_keys is not None else current_config.fallback_api_keys
     elif settings:
         target_url = config_update.target_api_url or settings.target_api_url
         target_key = config_update.target_api_key or settings.target_api_key
         max_context = config_update.max_context if config_update.max_context is not None else settings.max_context
         max_output_tokens = config_update.max_output_tokens if config_update.max_output_tokens is not None else settings.max_output_tokens
+        fallback_api_keys = config_update.fallback_api_keys if config_update.fallback_api_keys is not None else ""
     else:
         raise HTTPException(
             status_code=500,

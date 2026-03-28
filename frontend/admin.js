@@ -35,6 +35,7 @@ const targetUrlInput = document.getElementById('target-url');
 const targetKeyInput = document.getElementById('target-key');
 const maxContextInput = document.getElementById('max-context');
 const maxOutputTokensInput = document.getElementById('max-output-tokens');
+const fallbackKeysInput = document.getElementById('fallback-keys');
 
 // Keys table elements
 const keysTable = document.getElementById('keys-table');
@@ -304,6 +305,7 @@ async function loadConfig() {
             targetKeyInput.placeholder = data.target_api_key_masked || 'sk-...';
             maxContextInput.value = data.max_context || 128000;
             if (maxOutputTokensInput) maxOutputTokensInput.value = data.max_output_tokens ?? 4096;
+            if (fallbackKeysInput) fallbackKeysInput.value = data.fallback_api_keys || '';
             const maxKeysEl = document.getElementById('max-keys-per-ip');
             if (maxKeysEl) maxKeysEl.textContent = data.max_keys_per_ip ?? '—';
         } else if (response.status === 401) {
@@ -327,7 +329,8 @@ async function saveConfig(event) {
     const payload = {
         target_api_url: targetUrl,
         max_context: maxContext,
-        max_output_tokens: Math.max(1, Math.min(128000, maxOutputTokens))
+        max_output_tokens: Math.max(1, Math.min(128000, maxOutputTokens)),
+        fallback_api_keys: fallbackKeysInput ? fallbackKeysInput.value.trim() : ""
     };
 
     if (targetKey) {
