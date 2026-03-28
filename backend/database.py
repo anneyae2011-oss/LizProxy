@@ -1252,6 +1252,8 @@ class PostgreSQLDatabase(Database):
             config_col_names = {r["column_name"] for r in config_cols}
             if "max_output_tokens" not in config_col_names:
                 await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_output_tokens INTEGER DEFAULT 4096")
+            if "max_context" not in config_col_names:
+                await conn.execute("ALTER TABLE proxy_config ADD COLUMN max_context INTEGER DEFAULT 128000")
             if "fallback_api_keys" not in config_col_names:
                 await conn.execute("ALTER TABLE proxy_config ADD COLUMN fallback_api_keys TEXT DEFAULT ''")
             if "current_key_index" not in config_col_names:
@@ -1698,9 +1700,9 @@ class PostgreSQLDatabase(Database):
             if not row:
                 return None
             return ProxyConfig(
-                target_api_url=row["target_api_url"],
-                target_api_key=row["target_api_key"],
-                max_context=row["max_context"],
+                target_api_url=self._safe_get(row, "target_api_url", ""),
+                target_api_key=self._safe_get(row, "target_api_key", ""),
+                max_context=self._safe_get(row, "max_context", 128000),
                 max_output_tokens=self._safe_get(row, "max_output_tokens", 4096),
                 fallback_api_keys=self._safe_get(row, "fallback_api_keys", ""),
                 current_key_index=self._safe_get(row, "current_key_index", 0),

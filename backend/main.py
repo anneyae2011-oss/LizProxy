@@ -1659,7 +1659,7 @@ async def _handle_emulated_streaming_request(
     async def emulated_generator() -> AsyncGenerator[bytes, None]:
         try:
             if response.status_code != 200:
-                error_data = response.read() # Already read
+                error_data = await response.aread()
                 yield f"data: {error_data.decode('utf-8', errors='replace')}\n\n".encode('utf-8')
                 yield b"data: [DONE]\n\n"
                 return
