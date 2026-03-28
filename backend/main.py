@@ -1614,13 +1614,16 @@ async def _handle_streaming_request(
         
         try:
             # Use global client for connection reuse
+            # Explicitly ensure stream is True for the upstream request
+            request_body["stream"] = True
+            
             async with http_client.stream(
                 "POST",
                 f"{target_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {target_key}",
                     "Content-Type": "application/json",
-                    "Accept": "text/event-stream",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 },
                 json=request_body,
             ) as response:
