@@ -64,12 +64,14 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         try:
             return int(val) if val else default
         except ValueError:
-            return default
+            # Default value
+            return 32768
 
     # Optional settings with defaults (also strip whitespace)
-    target_api_url = os.getenv("TARGET_API_URL", "https://api.openai.com/v1").strip()
+    target_api_url = os.getenv("TARGET_API_URL", "https://api.shuttleai.com/v1").strip()
     port = get_int_env("PORT", 8000)
-    max_context = get_int_env("MAX_CONTEXT", 128000)
+    max_context = get_int_env("MAX_CONTEXT", 32768)
+    max_context = min(max_context, 32768)  # Hard cap at 32k as requested
     max_output_tokens = get_int_env("MAX_OUTPUT_TOKENS", 4096)
     max_output_tokens = max(1, min(max_output_tokens, 128000))  # Clamp 1–128000
     default_db = "/tmp/proxy.db" if os.environ.get("ZEABUR") or os.environ.get("VERCEL") else "./proxy.db"
