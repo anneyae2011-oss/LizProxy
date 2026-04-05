@@ -1782,6 +1782,9 @@ async def _handle_streaming_request(
         headers={
             "Authorization": f"Bearer {target_key}",
             "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
         json=request_body,
@@ -1857,9 +1860,12 @@ async def _handle_streaming_request(
                     if chunk_str:
                         # Process each line in the decoded string
                         for line in chunk_str.split('\n'):
-                            if line.startswith('data: ') and line != 'data: [DONE]':
-                                data_str = line[6:]
-                                if data_str.strip():
+                            line = line.strip()
+                            if line.startswith('data:'):
+                                data_str = line[5:].strip()
+                                if data_str == '[DONE]':
+                                    continue
+                                if data_str:
                                     try:
                                         data = json_module.loads(data_str)
                                         # Count tokens from delta content
