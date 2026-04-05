@@ -1776,7 +1776,8 @@ async def _handle_streaming_request(
     """
     # 1. Open the stream and check status BEFORE returning StreamingResponse
     # This allows catching 403 for rotation
-    response = await http_client.post(
+    request = http_client.build_request(
+        "POST",
         f"{target_url}/chat/completions",
         headers={
             "Authorization": f"Bearer {target_key}",
@@ -1784,8 +1785,8 @@ async def _handle_streaming_request(
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
         json=request_body,
-        stream=True
     )
+    response = await http_client.send(request, stream=True)
     
     if response.status_code == 403:
         await response.aclose()
