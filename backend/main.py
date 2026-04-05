@@ -1847,8 +1847,11 @@ async def _handle_streaming_request(
             
             # Success - increment daily request count (RPD)
             # (Proactive RPM increment already happened in proxy_chat_completions)
-            print(f"[Auth] Incrementing RPD for key {key_record.key_prefix}")
-            await db.increment_rpd_only(key_record.id)
+            try:
+                print(f"[Auth] Incrementing RPD for key {key_record.key_prefix}")
+                await db.increment_rpd_only(key_record.id)
+            except Exception as db_err:
+                print(f"[DB Error] Failed to increment RPD: {db_err}. Continuing anyway.")
             
             # True streaming - forward each chunk immediately
             decoder = codecs.getincrementaldecoder("utf-8")()
@@ -1918,43 +1921,50 @@ async def _handle_streaming_request(
                 # Yield chunk immediately (true streaming)
                 yield chunk
             
+            # Process remaining buffer if it contains a partial line
+            if buffer:
+                line = buffer.strip()
+                if line.startswith('data:'):
+                    data_str = line[5:].strip()
+                    if data_str != '[DONE]' and data_str:
+                        try:
+                            data = json_module.loads(data_str)
+                            if 'usage' in data and data['usage']:
+                                input_tokens_actual = data['usage'].get('prompt_tokens', input_tokens_actual)
+                                output_tokens = data['usage'].get('completion_tokens', output_tokens)
+                                total_tokens = data['usage'].get('total_tokens', total_tokens)
+                        except: pass
+
             # Log usage after stream completes
-            await db.log_usage(
-                key_id=key_record.id,
-                model=request_body.get("model", "unknown"),
-                tokens=total_tokens,
-                success=stream_success,
-                ip_address=client_ip,
-                input_tokens=input_tokens_actual,
-                output_tokens=output_tokens,
-                error_message=error_message,
-            )
-        except httpx.TimeoutException as e:
-            print(f"[Upstream Timeout] {str(e)}")
-            await db.log_usage(
-                key_id=key_record.id,
-                model=request_body.get("model", "unknown"),
-                tokens=token_count,
-                success=False,
-                ip_address=client_ip,
-                input_tokens=token_count,
-                error_message="Upstream API timeout",
-            )
-            error_response = {"error": {"message": "Upstream API timeout", "type": "timeout", "code": 504}}
-            yield f"data: {json_module.dumps(error_response)}\n\n".encode('utf-8')
-            yield b"data: [DONE]\n\n"
-        except httpx.RequestError as e:
-            print(f"[Upstream Request Error] {str(e)}")
-            await db.log_usage(
-                key_id=key_record.id,
-                model=request_body.get("model", "unknown"),
-                tokens=token_count,
-                success=False,
-                ip_address=client_ip,
-                input_tokens=token_count,
-                error_message=str(e),
-            )
-            error_response = {"error": {"message": f"Unable to reach upstream API: {str(e)}", "type": "connection_error", "code": 502}}
+            try:
+                await db.log_usage(
+                    key_id=key_record.id,
+                    model=request_body.get("model", "unknown"),
+                    tokens=total_tokens,
+                    success=stream_success,
+                    ip_address=client_ip,
+                    input_tokens=input_tokens_actual,
+                    output_tokens=output_tokens,
+                    error_message=error_message,
+                )
+            except Exception as db_err:
+                print(f"[DB Error] Failed to log usage after successful stream: {db_err}")
+        except Exception as e:
+            import traceback
+            print(f"[Stream Error] {str(e)}")
+            traceback.print_exc()
+            try:
+                await db.log_usage(
+                    key_id=key_record.id,
+                    model=request_body.get("model", "unknown"),
+                    tokens=token_count,
+                    success=False,
+                    ip_address=client_ip,
+                    input_tokens=token_count,
+                    error_message=str(e),
+                )
+            except Exception as dbe: print(f"[DB Error] {dbe}")
+            error_response = {"error": {"message": f"An error occurred during streaming: {str(e)}", "type": "internal_error", "code": 500}}
             yield f"data: {json_module.dumps(error_response)}\n\n".encode('utf-8')
             yield b"data: [DONE]\n\n"
     
