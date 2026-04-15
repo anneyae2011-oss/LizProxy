@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from backend.config import load_settings, Settings
 from backend.database import Database, ApiKeyRecord, create_database, ContentFlagRecord
 from backend.session_secret import get_or_create_session_secret
+from backend.context_curator import maybe_curate_context, _estimate_tokens as _cc_estimate_tokens
 
 
 # ==================== Early .env Loading ====================
@@ -1526,6 +1527,16 @@ async def _proxy_chat_completions_impl(
                 status_code=400,
                 detail=f"Request exceeds maximum context limit of {max_context} tokens"
             )
+        
+        # ---- Context Curation ----
+        # If the conversation exceeds 16k tokens, summarise the older portion
+        # using the cheap NVIDIA model before forwarding.
+        _raw_msgs = [m.model_dump() for m in chat_request.messages]
+        _curated  = await maybe_curate_context(_raw_msgs, http_client)
+        if _curated is not _raw_msgs:
+            token_count = _cc_estimate_tokens(_curated)
+            chat_request.messages = [ChatMessage(**m) for m in _curated]
+        # --------------------------
         
         # Check rate limits (proactive check only)
         estimated_tokens = token_count + (await get_max_output_tokens())
