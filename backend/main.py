@@ -276,9 +276,16 @@ class RateLimitResult:
 # ==================== Constants ====================
 
 RPM_LIMIT = 4
-RPD_LIMIT = 100  # Request count (display only; daily limit is request-based)
-REQUESTS_PER_DAY_LIMIT = 100  # Daily request quota per key (enforced)
+RPD_LIMIT = 700  # Default daily request limit
+REQUESTS_PER_DAY_LIMIT = 700  # Default daily request quota per key (enforced)
 RPM_WINDOW_SECONDS = 60
+
+# These Claude models are expensive — hard cap at 100 RPD per key
+CLAUDE_LIMITED_MODELS = {
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-6",
+}
+CLAUDE_LIMITED_RPD = 100
 MAX_TOKENS_PER_SECOND = 100  # Maximum tokens per second for streaming (increased from 35)
 
 
@@ -438,16 +445,19 @@ async def check_rate_limits(
     key_record: ApiKeyRecord,
     database: "Database",
     estimated_tokens: int = 0,
+    model: str = "",
 ) -> RateLimitResult:
     """Check rate limits for an API key.
     
-    Enforces RPM (requests per minute) and daily token quota (REQUESTS_PER_DAY_LIMIT).
+    Enforces RPM (requests per minute) and daily token quota.
+    Claude-limited models get 100 RPD; all others get 700 RPD.
     This function performs resets if needed via ensure_usage_reset.
     
     Args:
         key_record: The API key record to check.
         database: The database instance for updating counters.
         estimated_tokens: Estimated tokens for this request (unused currently but kept for legacy).
+        model: The model being requested (used to determine per-model RPD limit).
     
     Returns:
         RateLimitResult indicating whether the request is allowed and any
@@ -455,6 +465,9 @@ async def check_rate_limits(
     """
     # Ensure counters are fresh before checking
     key_record = await ensure_usage_reset(key_record, database)
+    
+    # Determine the effective daily limit for this model
+    effective_rpd_limit = CLAUDE_LIMITED_RPD if model in CLAUDE_LIMITED_MODELS else REQUESTS_PER_DAY_LIMIT
     
     now = datetime.now(timezone.utc)
     seconds_since_rpm_reset = (now - (key_record.last_rpm_reset.replace(tzinfo=timezone.utc) if key_record.last_rpm_reset.tzinfo is None else key_record.last_rpm_reset)).total_seconds()
@@ -468,8 +481,8 @@ async def check_rate_limits(
             retry_after=retry_after,
         )
     
-    # Check daily request limit
-    if key_record.current_rpd >= REQUESTS_PER_DAY_LIMIT:
+    # Check daily request limit (per-model)
+    if key_record.current_rpd >= effective_rpd_limit:
         midnight_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         retry_after = int((midnight_utc - now).total_seconds())
         return RateLimitResult(
@@ -1448,7 +1461,11 @@ async def get_public_models():
                     if model_id and model_id not in excluded:
                         # Default to HEALTHY if it hasn't been checked yet
                         status = "HEALTHY" if MODEL_HEALTH.get(model_id, True) else "DOWN"
-                        result.append({"id": model_id, "status": status})
+                        result.append({
+                            "id": model_id,
+                            "status": status,
+                            "claude_limited": model_id in CLAUDE_LIMITED_MODELS,
+                        })
                 
                 return {"models": result}
     except Exception as e:
@@ -1540,7 +1557,7 @@ async def _proxy_chat_completions_impl(
         
         # Check rate limits (proactive check only)
         estimated_tokens = token_count + (await get_max_output_tokens())
-        rate_result = await check_rate_limits(key_record, db, estimated_tokens=estimated_tokens)
+        rate_result = await check_rate_limits(key_record, db, estimated_tokens=estimated_tokens, model=chat_request.model)
         if not rate_result.allowed:
             return create_rate_limit_response(rate_result)
         
